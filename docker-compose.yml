@@ -1,0 +1,17 @@
+services:
+  goods-management:
+    build: .
+    image: goods-management-system:v1.0
+    container_name: goods-management-system
+    ports:
+      - "8000:8000"
+    volumes:
+      - goods-data:/app/data
+    environment:
+      DATA_DIR: /app/data
+      STATIC_DIR: /app/static
+      CORS_ORIGINS: "*"
+    restart: unless-stopped
+
+volumes:
+  goods-data:
