@@ -278,7 +278,11 @@ warehouse-management-system/
 │   └── package-lock.json
 ├── docs/
 │   ├── requirements.md
-│   └── system-design-diagrams.md
+│   ├── system-design-diagrams.md
+│   ├── erd-diagram.png
+│   ├── usecase-admin.png
+│   ├── usecase-manager.png
+│   └── usecase-staff.png
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .dockerignore
@@ -299,7 +303,23 @@ Sơ đồ ERD dưới đây mô tả các bảng dữ liệu chính của hệ t
 
 ![Sơ đồ ERD hệ thống quản lý kho hàng](docs/erd-diagram.png)
 
-File này bao gồm:
+### 11.2 Sơ Đồ Use Case
+
+Sơ đồ Use Case mô tả 13 chức năng chính của hệ thống, tách riêng theo từng vai trò người dùng để dễ đối chiếu với Ma trận phân quyền ở Mục 4. Các chức năng tô xám, nét đứt là chức năng vai trò đó không được sử dụng.
+
+**Quản trị viên** — toàn quyền trên 13/13 chức năng, bao gồm cả xem/tìm kiếm và thêm/sửa/xóa đơn hàng:
+
+![Sơ đồ Use Case - Quản trị viên](docs/usecase-admin.png)
+
+**Quản lý kho** — 12/13 chức năng, được xem và tìm kiếm đơn hàng nhưng không được thêm/sửa/xóa:
+
+![Sơ đồ Use Case - Quản lý kho](docs/usecase-manager.png)
+
+**Nhân viên kho** — chỉ thao tác nghiệp vụ kho vận hằng ngày: đăng nhập, xem tổng quan, nhập kho, xuất kho, xem tồn kho, quét Barcode/QR và xem hoạt động (7/13 chức năng):
+
+![Sơ đồ Use Case - Nhân viên kho](docs/usecase-staff.png)
+
+File `docs/system-design-diagrams.md` bao gồm:
 
 - ERD.
 - Data Dictionary.
