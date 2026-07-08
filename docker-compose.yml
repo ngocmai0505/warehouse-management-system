@@ -1,12 +1,12 @@
 services:
-  goods-management:
+  warehouse-management:
     build: .
-    image: goods-management-system:v1.0
-    container_name: goods-management-system
+    image: warehouse-management-system:v1.0
+    container_name: warehouse-management-system
     ports:
       - "8000:8000"
     volumes:
-      - goods-data:/app/data
+      - warehouse-data:/app/data
     environment:
       DATA_DIR: /app/data
       STATIC_DIR: /app/static
@@ -14,4 +14,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  goods-data:
+  warehouse-data:

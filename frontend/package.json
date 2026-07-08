@@ -1,5 +1,5 @@
 {
-  "name": "goods-management-frontend",
+  "name": "warehouse-management-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "@zxing/browser": "latest",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",

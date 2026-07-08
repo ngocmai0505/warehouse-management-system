@@ -14,10 +14,10 @@ from pydantic import BaseModel, Field
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
-DB_PATH = Path(os.getenv("DATABASE_URL", DATA_DIR / "goods.db"))
+DB_PATH = Path(os.getenv("DATABASE_URL", DATA_DIR / "warehouse.db"))
 STATIC_DIR = Path(os.getenv("STATIC_DIR", BASE_DIR / "static"))
 
-app = FastAPI(title="Goods Management System API", version="1.0.0")
+app = FastAPI(title="Warehouse Management System API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
@@ -53,6 +53,9 @@ def today_iso() -> str:
     return date.today().isoformat()
 
 
+PRODUCT_FIELDS = "id, sku, name, category, brand, unit, import_price, sale_price, barcode, lot_number, expiry_date, image_url, min_stock, location, stock_qty, status, created_at"
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -67,6 +70,8 @@ class ProductIn(BaseModel):
     import_price: float = 0
     sale_price: float = 0
     barcode: str = ""
+    lot_number: str = ""
+    expiry_date: str = ""
     image_url: str = ""
     min_stock: int = 10
     location: str = "Kho chinh"
@@ -138,6 +143,8 @@ CREATE TABLE IF NOT EXISTS products (
   import_price REAL NOT NULL DEFAULT 0,
   sale_price REAL NOT NULL DEFAULT 0,
   barcode TEXT UNIQUE,
+  lot_number TEXT,
+  expiry_date TEXT,
   image_url TEXT,
   min_stock INTEGER NOT NULL DEFAULT 10,
   location TEXT NOT NULL DEFAULT 'Kho chinh',
@@ -228,7 +235,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   entity TEXT NOT NULL,
   entity_id INTEGER,
   message TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_read INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -245,14 +253,30 @@ def log(conn: sqlite3.Connection, action: str, entity: str, entity_id: Optional[
     )
 
 
+def ensure_product_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(products)").fetchall()}
+    for name, definition in {
+        "lot_number": "TEXT",
+        "expiry_date": "TEXT",
+    }.items():
+        if name not in existing:
+            conn.execute(f"ALTER TABLE products ADD COLUMN {name} {definition}")
+
+
+def ensure_audit_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(audit_logs)").fetchall()}
+    if "is_read" not in existing:
+        conn.execute("ALTER TABLE audit_logs ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0")
+
+
 def normalize_demo_data(conn: sqlite3.Connection) -> None:
     demo_products = [
-        ("Son m\u00f4i Velvet Tint", "c\u00e2y", "K\u1ec7 A1", "SK001"),
-        ("Kem ch\u1ed1ng n\u1eafng Aqua", "tu\u00fdp", "K\u1ec7 B2", "SK002"),
-        ("M\u1eb7t n\u1ea1 d\u01b0\u1ee1ng \u1ea9m", "h\u1ed9p", "K\u1ec7 C1", "SK003"),
-        ("N\u01b0\u1edbc t\u1ea9y trang Green Tea", "chai", "K\u1ec7 B1", "SK004"),
+        ("Son m\u00f4i Velvet Tint", "c\u00e2y", "K\u1ec7 A1", "LOT-2026-01", "2027-12-31", "SK001"),
+        ("Kem ch\u1ed1ng n\u1eafng Aqua", "tu\u00fdp", "K\u1ec7 B2", "LOT-2026-02", "2026-09-30", "SK002"),
+        ("M\u1eb7t n\u1ea1 d\u01b0\u1ee1ng \u1ea9m", "h\u1ed9p", "K\u1ec7 C1", "LOT-2026-03", "2026-08-15", "SK003"),
+        ("N\u01b0\u1edbc t\u1ea9y trang Green Tea", "chai", "K\u1ec7 B1", "LOT-2025-11", "2026-07-20", "SK004"),
     ]
-    conn.executemany("UPDATE products SET name=?, unit=?, location=? WHERE sku=?", demo_products)
+    conn.executemany("UPDATE products SET name=?, unit=?, location=?, lot_number=?, expiry_date=? WHERE sku=?", demo_products)
     demo_orders = [
         ("L\u00ea Minh Anh", "ORD00001"),
         ("Tr\u1ea7n Gia H\u00e2n", "ORD00002"),
@@ -270,6 +294,8 @@ def normalize_demo_data(conn: sqlite3.Connection) -> None:
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        ensure_product_columns(conn)
+        ensure_audit_columns(conn)
         if conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"] == 0:
             conn.executemany(
                 "INSERT INTO users(username, password, full_name, role) VALUES (?, ?, ?, ?)",
@@ -290,14 +316,14 @@ def init_db() -> None:
         if conn.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"] == 0:
             conn.executemany(
                 """
-                INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, image_url, min_stock, location, stock_qty, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, lot_number, expiry_date, image_url, min_stock, location, stock_qty, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    ("SK001", "Son môi Velvet Tint", "Makeup", "ActsOne", "cây", 85000, 159000, "880000000001", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=400&q=80", 50, "Kệ A1", 500, "Dang ban"),
-                    ("SK002", "Kem chống nắng Aqua", "Skincare", "ActsOne", "tuýp", 120000, 249000, "880000000002", "https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=400&q=80", 40, "Kệ B2", 35, "Dang ban"),
-                    ("SK003", "Mặt nạ dưỡng ẩm", "Skincare", "K-Beauty", "hộp", 65000, 129000, "880000000003", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=400&q=80", 30, "Kệ C1", 8, "Dang ban"),
-                    ("SK004", "Nước tẩy trang Green Tea", "Skincare", "ActsOne", "chai", 90000, 189000, "880000000004", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=400&q=80", 25, "Kệ B1", 0, "Tam ngung"),
+                    ("SK001", "Son môi Velvet Tint", "Makeup", "ActsOne", "cây", 85000, 159000, "880000000001", "LOT-2026-01", "2027-12-31", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=400&q=80", 50, "Kệ A1", 500, "Dang ban"),
+                    ("SK002", "Kem chống nắng Aqua", "Skincare", "ActsOne", "tuýp", 120000, 249000, "880000000002", "LOT-2026-02", "2026-09-30", "https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=400&q=80", 40, "Kệ B2", 35, "Dang ban"),
+                    ("SK003", "Mặt nạ dưỡng ẩm", "Skincare", "K-Beauty", "hộp", 65000, 129000, "880000000003", "LOT-2026-03", "2026-08-15", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=400&q=80", 30, "Kệ C1", 8, "Dang ban"),
+                    ("SK004", "Nước tẩy trang Green Tea", "Skincare", "ActsOne", "chai", 90000, 189000, "880000000004", "LOT-2025-11", "2026-07-20", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=400&q=80", 25, "Kệ B1", 0, "Tam ngung"),
                 ],
             )
         if conn.execute("SELECT COUNT(*) AS count FROM orders").fetchone()["count"] == 0:
@@ -338,12 +364,13 @@ def login(payload: LoginRequest) -> dict[str, Any]:
 def list_products(q: str = "") -> list[dict[str, Any]]:
     like = f"%{q.lower()}%"
     return fetch_all(
-        """
-        SELECT * FROM products
-        WHERE lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(brand) LIKE ? OR lower(coalesce(barcode, '')) LIKE ?
+        f"""
+        SELECT {PRODUCT_FIELDS} FROM products
+        WHERE status NOT IN ('Ngung kinh doanh', 'Tam ngung')
+          AND (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(brand) LIKE ? OR lower(coalesce(barcode, '')) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
         ORDER BY created_at DESC, id DESC
         """,
-        (like, like, like, like, like),
+        (like, like, like, like, like, like),
     )
 
 
@@ -353,16 +380,16 @@ def create_product(payload: ProductIn) -> dict[str, Any]:
         try:
             cursor = conn.execute(
                 """
-                INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, image_url, min_stock, location, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, lot_number, expiry_date, image_url, min_stock, location, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (payload.sku, payload.name, payload.category, payload.brand, payload.unit, payload.import_price, payload.sale_price, payload.barcode or None, payload.image_url, payload.min_stock, payload.location, payload.status),
+                (payload.sku, payload.name, payload.category, payload.brand, payload.unit, payload.import_price, payload.sale_price, payload.barcode or None, payload.lot_number, payload.expiry_date, payload.image_url, payload.min_stock, payload.location, payload.status),
             )
             log(conn, "create", "product", cursor.lastrowid, f"Tao san pham {payload.sku}")
             conn.commit()
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="SKU hoac barcode da ton tai") from exc
-        return fetch_one("SELECT * FROM products WHERE id = ?", (cursor.lastrowid,))
+        return fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE id = ?", (cursor.lastrowid,))
 
 
 @app.put("/api/products/{product_id}")
@@ -374,16 +401,16 @@ def update_product(product_id: int, payload: ProductIn) -> dict[str, Any]:
         try:
             conn.execute(
                 """
-                UPDATE products SET sku=?, name=?, category=?, brand=?, unit=?, import_price=?, sale_price=?, barcode=?, image_url=?, min_stock=?, location=?, status=?
+                UPDATE products SET sku=?, name=?, category=?, brand=?, unit=?, import_price=?, sale_price=?, barcode=?, lot_number=?, expiry_date=?, image_url=?, min_stock=?, location=?, status=?
                 WHERE id=?
                 """,
-                (payload.sku, payload.name, payload.category, payload.brand, payload.unit, payload.import_price, payload.sale_price, payload.barcode or None, payload.image_url, payload.min_stock, payload.location, payload.status, product_id),
+                (payload.sku, payload.name, payload.category, payload.brand, payload.unit, payload.import_price, payload.sale_price, payload.barcode or None, payload.lot_number, payload.expiry_date, payload.image_url, payload.min_stock, payload.location, payload.status, product_id),
             )
             log(conn, "update", "product", product_id, f"Cap nhat san pham {payload.sku}")
             conn.commit()
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="SKU hoac barcode da ton tai") from exc
-    return fetch_one("SELECT * FROM products WHERE id = ?", (product_id,))
+    return fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE id = ?", (product_id,))
 
 
 @app.delete("/api/products/{product_id}")
@@ -399,7 +426,7 @@ def deactivate_product(product_id: int) -> dict[str, str]:
 def list_suppliers(q: str = "") -> list[dict[str, Any]]:
     like = f"%{q.lower()}%"
     return fetch_all(
-        "SELECT * FROM suppliers WHERE lower(name) LIKE ? OR lower(coalesce(email,'')) LIKE ? OR lower(coalesce(phone,'')) LIKE ? ORDER BY id DESC",
+        "SELECT * FROM suppliers WHERE status != 'Ngung hop tac' AND (lower(name) LIKE ? OR lower(coalesce(email,'')) LIKE ? OR lower(coalesce(phone,'')) LIKE ?) ORDER BY id DESC",
         (like, like, like),
     )
 
@@ -444,18 +471,19 @@ def delete_supplier(supplier_id: int) -> dict[str, str]:
 def inventory(q: str = "", low_stock: bool = False) -> list[dict[str, Any]]:
     like = f"%{q.lower()}%"
     rows = fetch_all(
-        """
-        SELECT *,
+        f"""
+        SELECT {PRODUCT_FIELDS},
           CASE
             WHEN stock_qty <= 0 THEN 'Het hang'
             WHEN stock_qty <= min_stock THEN 'Sap het'
             ELSE 'An toan'
           END AS inventory_status
         FROM products
-        WHERE (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ?)
+        WHERE status NOT IN ('Ngung kinh doanh', 'Tam ngung')
+          AND (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
         ORDER BY stock_qty ASC, name ASC
         """,
-        (like, like, like),
+        (like, like, like, like),
     )
     return [row for row in rows if not low_stock or row["stock_qty"] <= row["min_stock"]]
 
@@ -464,10 +492,16 @@ def inventory(q: str = "", low_stock: bool = False) -> list[dict[str, Any]]:
 def list_receipts() -> list[dict[str, Any]]:
     return fetch_all(
         """
-        SELECT r.*, s.name AS supplier_name, COALESCE(SUM(i.quantity), 0) AS total_quantity, COALESCE(SUM(i.quantity * i.unit_price), 0) AS total_value
+        SELECT
+          r.*,
+          s.name AS supplier_name,
+          COALESCE(SUM(i.quantity), 0) AS total_quantity,
+          COALESCE(SUM(i.quantity * i.unit_price), 0) AS total_value,
+          COALESCE(GROUP_CONCAT(p.name || ' (' || COALESCE(p.lot_number, '-') || ') x' || i.quantity, ', '), '') AS items_summary
         FROM stock_receipts r
         LEFT JOIN suppliers s ON s.id = r.supplier_id
         LEFT JOIN stock_receipt_items i ON i.receipt_id = r.id
+        LEFT JOIN products p ON p.id = i.product_id
         GROUP BY r.id
         ORDER BY r.id DESC
         """
@@ -503,10 +537,16 @@ def create_receipt(payload: ReceiptIn) -> dict[str, Any]:
 def list_issues() -> list[dict[str, Any]]:
     return fetch_all(
         """
-        SELECT i.*, o.code AS order_code, COALESCE(SUM(ii.quantity), 0) AS total_quantity, COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS total_value
+        SELECT
+          i.*,
+          o.code AS order_code,
+          COALESCE(SUM(ii.quantity), 0) AS total_quantity,
+          COALESCE(SUM(ii.quantity * ii.unit_price), 0) AS total_value,
+          COALESCE(GROUP_CONCAT(p.name || ' x' || ii.quantity, ', '), '') AS items_summary
         FROM stock_issues i
         LEFT JOIN orders o ON o.id = i.order_id
         LEFT JOIN stock_issue_items ii ON ii.issue_id = i.id
+        LEFT JOIN products p ON p.id = ii.product_id
         GROUP BY i.id
         ORDER BY i.id DESC
         """
@@ -545,7 +585,24 @@ def create_issue(payload: IssueIn) -> dict[str, Any]:
 
 @app.get("/api/orders")
 def list_orders() -> list[dict[str, Any]]:
-    return fetch_all("SELECT * FROM orders ORDER BY id DESC")
+    return fetch_all(
+        """
+        SELECT
+          o.*,
+          COALESCE(SUM(ii.quantity), 0) AS total_quantity,
+          COALESCE(
+            GROUP_CONCAT(p.name || ' x' || ii.quantity, ', '),
+            ''
+          ) AS items_summary
+        FROM orders o
+        LEFT JOIN stock_issues si ON si.order_id = o.id
+        LEFT JOIN stock_issue_items ii ON ii.issue_id = si.id
+        LEFT JOIN products p ON p.id = ii.product_id
+        GROUP BY o.id
+        HAVING COALESCE(SUM(CASE WHEN p.status IN ('Ngung kinh doanh', 'Tam ngung') THEN 1 ELSE 0 END), 0) = 0
+        ORDER BY o.id DESC
+        """
+    )
 
 
 @app.post("/api/orders", status_code=201)
@@ -589,7 +646,7 @@ def delete_order(order_id: int) -> dict[str, str]:
 def list_inventory_checks() -> list[dict[str, Any]]:
     return fetch_all(
         """
-        SELECT c.*, COALESCE(SUM(ABS(i.difference)), 0) AS total_difference
+        SELECT c.*, COALESCE(SUM(i.difference), 0) AS total_difference
         FROM inventory_checks c
         LEFT JOIN inventory_check_items i ON i.check_id = c.id
         GROUP BY c.id
@@ -613,7 +670,7 @@ def create_inventory_check(payload: InventoryCheckIn) -> dict[str, Any]:
             product = conn.execute("SELECT stock_qty FROM products WHERE id = ?", (item.product_id,)).fetchone()
             if not product:
                 raise HTTPException(status_code=404, detail=f"Khong tim thay san pham #{item.product_id}")
-            diff = item.actual_qty - product["stock_qty"]
+            diff = product["stock_qty"] - item.actual_qty
             conn.execute(
                 "INSERT INTO inventory_check_items(check_id, product_id, system_qty, actual_qty, difference) VALUES (?, ?, ?, ?, ?)",
                 (check_id, item.product_id, product["stock_qty"], item.actual_qty, diff),
@@ -633,29 +690,79 @@ def dashboard() -> dict[str, Any]:
           COALESCE(SUM(stock_qty), 0) AS total_stock,
           SUM(CASE WHEN stock_qty <= min_stock THEN 1 ELSE 0 END) AS low_stock_products
         FROM products
+        WHERE status NOT IN ('Ngung kinh doanh', 'Tam ngung')
         """
     ) or {}
-    order_stats = fetch_one("SELECT COUNT(*) AS today_orders FROM orders WHERE order_date = ?", (today_iso(),)) or {}
-    month = today_iso()[:7]
-    receipt_stats = fetch_one("SELECT COALESCE(SUM(i.quantity), 0) AS month_receipts FROM stock_receipts r JOIN stock_receipt_items i ON i.receipt_id = r.id WHERE substr(r.receipt_date, 1, 7) = ?", (month,)) or {}
-    issue_stats = fetch_one("SELECT COALESCE(SUM(i.quantity), 0) AS month_issues FROM stock_issues s JOIN stock_issue_items i ON i.issue_id = s.id WHERE substr(s.issue_date, 1, 7) = ?", (month,)) or {}
+    order_stats = fetch_one("SELECT COUNT(*) AS today_orders FROM orders WHERE status != 'Huy don'") or {}
+    receipt_stats = fetch_one("SELECT COALESCE(SUM(i.quantity), 0) AS month_receipts FROM stock_receipts r JOIN stock_receipt_items i ON i.receipt_id = r.id") or {}
+    issue_stats = fetch_one("SELECT COALESCE(SUM(i.quantity), 0) AS month_issues FROM stock_issues s JOIN stock_issue_items i ON i.issue_id = s.id") or {}
     low_stock = inventory(low_stock=True)[:6]
     activities = fetch_all("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 8")
     return {**stats, **order_stats, **receipt_stats, **issue_stats, "low_stock": low_stock, "activities": activities}
 
 
+@app.get("/api/activities")
+def list_activities() -> list[dict[str, Any]]:
+    return fetch_all("SELECT * FROM audit_logs ORDER BY id DESC LIMIT 200")
+
+
+@app.get("/api/activities/unread-count")
+def unread_activities() -> dict[str, int]:
+    row = fetch_one("SELECT COUNT(*) AS count FROM audit_logs WHERE is_read = 0") or {"count": 0}
+    return {"count": int(row["count"])}
+
+
+@app.put("/api/activities/read-all")
+def mark_all_activities_read() -> dict[str, bool]:
+    with get_conn() as conn:
+        conn.execute("UPDATE audit_logs SET is_read = 1 WHERE is_read = 0")
+        conn.commit()
+    return {"ok": True}
+
+
+@app.put("/api/activities/{activity_id}/read")
+def mark_activity_read(activity_id: int) -> dict[str, bool]:
+    with get_conn() as conn:
+        cursor = conn.execute("UPDATE audit_logs SET is_read = 1 WHERE id = ?", (activity_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Khong tim thay hoat dong")
+        conn.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/activities")
+def clear_activities() -> dict[str, bool]:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM audit_logs")
+        conn.commit()
+    return {"ok": True}
+
+
+@app.delete("/api/activities/{activity_id}")
+def delete_activity(activity_id: int) -> dict[str, bool]:
+    with get_conn() as conn:
+        cursor = conn.execute("DELETE FROM audit_logs WHERE id = ?", (activity_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Khong tim thay hoat dong")
+        conn.commit()
+    return {"ok": True}
+
+
 @app.get("/api/reports/summary")
 def report_summary() -> dict[str, Any]:
     receipts = fetch_all(
-        "SELECT receipt_date AS date, COUNT(*) AS documents, COALESCE(SUM(i.quantity), 0) AS quantity FROM stock_receipts r LEFT JOIN stock_receipt_items i ON i.receipt_id = r.id GROUP BY receipt_date ORDER BY receipt_date DESC LIMIT 12"
+        "SELECT receipt_date AS date, COUNT(*) AS documents, COALESCE(SUM(i.quantity), 0) AS quantity FROM stock_receipts r LEFT JOIN stock_receipt_items i ON i.receipt_id = r.id GROUP BY receipt_date ORDER BY receipt_date DESC"
     )
     issues = fetch_all(
-        "SELECT issue_date AS date, COUNT(*) AS documents, COALESCE(SUM(i.quantity), 0) AS quantity FROM stock_issues s LEFT JOIN stock_issue_items i ON i.issue_id = s.id GROUP BY issue_date ORDER BY issue_date DESC LIMIT 12"
+        "SELECT issue_date AS date, COUNT(*) AS documents, COALESCE(SUM(i.quantity), 0) AS quantity FROM stock_issues s LEFT JOIN stock_issue_items i ON i.issue_id = s.id GROUP BY issue_date ORDER BY issue_date DESC"
     )
     checks = fetch_all(
-        "SELECT c.check_date AS date, c.code, COALESCE(SUM(ABS(i.difference)), 0) AS total_difference FROM inventory_checks c LEFT JOIN inventory_check_items i ON i.check_id = c.id GROUP BY c.id ORDER BY c.id DESC LIMIT 12"
+        "SELECT c.check_date AS date, c.code, COALESCE(SUM(i.difference), 0) AS total_difference FROM inventory_checks c LEFT JOIN inventory_check_items i ON i.check_id = c.id GROUP BY c.id ORDER BY c.id DESC LIMIT 12"
     )
-    return {"receipts": receipts, "issues": issues, "checks": checks}
+    revenue = fetch_all(
+        "SELECT order_date AS date, COUNT(*) AS orders, COALESCE(SUM(total_amount), 0) AS revenue FROM orders WHERE status != 'Huy don' GROUP BY order_date ORDER BY order_date DESC"
+    )
+    return {"receipts": receipts, "issues": issues, "checks": checks, "revenue": revenue}
 
 
 @app.get("/api/reports/export")
@@ -685,13 +792,13 @@ def export_report() -> Response:
     return Response(
         content=csv,
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=goods-report.csv"},
+        headers={"Content-Disposition": "attachment; filename=warehouse-report.csv"},
     )
 
 
 @app.get("/api/scan/{code}")
 def scan_product(code: str) -> dict[str, Any]:
-    product = fetch_one("SELECT * FROM products WHERE barcode = ? OR sku = ?", (code, code))
+    product = fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE barcode = ? OR sku = ?", (code, code))
     if not product:
         raise HTTPException(status_code=404, detail="Khong tim thay san pham tu ma quet")
     product["inventory_status"] = "Het hang" if product["stock_qty"] <= 0 else "Sap het" if product["stock_qty"] <= product["min_stock"] else "An toan"

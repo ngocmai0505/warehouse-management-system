@@ -1,8 +1,8 @@
-# Goods Management System
+# Warehouse Management System
 
 ## English
 
-Goods Management System is a full-stack application for managing products, warehouse stock, suppliers, orders, stock counts, and operational reports for e-commerce teams.
+Warehouse Management System is a full-stack application for managing products, warehouse stock, suppliers, orders, stock counts, and operational reports for e-commerce teams.
 
 ### Technology Stack
 - Frontend: React, TypeScript, Vite, lucide-react.
@@ -14,13 +14,14 @@ Goods Management System is a full-stack application for managing products, wareh
 ### Key Features
 - Clean login screen with VI/EN language switch.
 - Dashboard for products, stock, orders, low-stock alerts, and monthly inbound/outbound quantities.
-- Product CRUD: create, edit, and deactivate/delete from the management view.
+- Product CRUD: create, edit, and deactivate/delete from the management view, including barcode, lot number, and expiry date.
 - Supplier CRUD and order CRUD.
 - Stock receipts increase inventory after confirmation.
 - Stock issues validate available stock before decreasing inventory.
 - Inventory is derived from products and warehouse transactions, so it is not directly deleted.
 - Reports are generated from stock receipts, stock issues, and stock counts, with CSV export.
 - Barcode/QR lookup by SKU or barcode.
+- Responsive layout for laptop operations and mobile scanning workflows.
 
 ### Run With Docker
 ```bash
@@ -39,7 +40,7 @@ API docs: http://localhost:8000/docs
 
 ## Tiếng Việt
 
-Goods Management System là ứng dụng full-stack dùng để quản lý hàng hóa, kho, nhà cung cấp, đơn hàng, kiểm kê và báo cáo cho vận hành thương mại điện tử.
+Warehouse Management System là ứng dụng full-stack dùng để quản lý kho hàng, sản phẩm, nhà cung cấp, đơn hàng, kiểm kê và báo cáo cho vận hành thương mại điện tử.
 
 ### Công nghệ
 - Frontend: React, TypeScript, Vite, lucide-react.
@@ -51,12 +52,13 @@ Goods Management System là ứng dụng full-stack dùng để quản lý hàng
 ### Chức năng chính
 - Màn hình đăng nhập gọn gàng, không tự điền tài khoản.
 - Dashboard tổng quan sản phẩm, tồn kho, đơn hàng, cảnh báo hàng sắp hết và nhập/xuất trong tháng.
-- Quản lý sản phẩm: thêm, sửa, xóa/ngừng kinh doanh.
+- Quản lý sản phẩm: thêm, sửa, xóa/ngừng kinh doanh, bao gồm barcode, lô hàng và hạn sử dụng.
 - Quản lý nhà cung cấp và đơn hàng: thêm, sửa, xóa/hủy.
 - Nhập kho tự động cộng tồn; xuất kho kiểm tra số lượng trước khi trừ tồn.
 - Tồn kho là dữ liệu phát sinh từ sản phẩm và giao dịch kho, không xóa trực tiếp.
 - Báo cáo lấy dữ liệu từ phiếu nhập, phiếu xuất và kiểm kê; có nút xuất CSV.
 - Tra cứu barcode/QR theo SKU hoặc mã vạch.
+- Giao diện responsive cho thao tác trên laptop và quét mã bằng điện thoại.
 
 ### Chạy bằng Docker
 ```bash
