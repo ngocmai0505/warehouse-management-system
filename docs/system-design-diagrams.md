@@ -266,7 +266,7 @@ Ghi chu: Quan he `STOCK_ISSUES.order_id -> ORDERS.id` dang duoc xu ly theo logic
 | product_id | INTEGER | FK -> products.id | San pham kiem ke |
 | system_qty | INTEGER | NOT NULL | Ton kho tren he thong |
 | actual_qty | INTEGER | NOT NULL | Ton kho thuc te |
-| difference | INTEGER | NOT NULL | Chenh lech ton kho, tinh bang system_qty - actual_qty |
+| difference | INTEGER | NOT NULL | Chenh lech ton kho |
 
 #### audit_logs
 
@@ -480,7 +480,7 @@ flowchart TD
     B --> C[Chon san pham can kiem ke]
     C --> D[He thong lay so luong ton he thong]
     D --> E[Nguoi dung nhap so luong thuc te]
-    E --> F[Tinh chenh lech = he thong - thuc te]
+    E --> F[Tinh chenh lech = thuc te - he thong]
     F --> G[Luu phieu kiem ke]
     G --> H[Cap nhat stock_qty theo so luong thuc te]
     H --> I[Ghi audit log]
