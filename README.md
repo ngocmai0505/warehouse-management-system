@@ -293,6 +293,12 @@ Tài liệu sơ đồ hệ thống nằm tại:
 docs/system-design-diagrams.md
 ```
 
+### 11.1 Sơ Đồ ERD
+
+Sơ đồ ERD dưới đây mô tả các bảng dữ liệu chính của hệ thống và mối quan hệ giữa sản phẩm, nhà cung cấp, đơn hàng, phiếu nhập kho, phiếu xuất kho, kiểm kê và nhật ký hoạt động.
+
+![Sơ đồ ERD hệ thống quản lý kho hàng](docs/erd-diagram.png)
+
 File này bao gồm:
 
 - ERD.
