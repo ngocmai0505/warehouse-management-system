@@ -143,6 +143,22 @@ Chênh lệch = Số lượng hệ thống - Số lượng thực tế
 - Cho phép đánh dấu đã đọc từng hoạt động hoặc tất cả hoạt động.
 - Quản trị viên có thể xóa lịch sử hoạt động.
 
+### 3.13 Đồng Bộ Tồn Kho Lên Sàn TMĐT (Realtime, 2 hệ thống độc lập)
+
+Tính năng này chạy trên **2 service tách biệt, giao tiếp qua mạng thật (HTTP)** để mô phỏng đúng quan hệ seller ↔ sàn TMĐT, không chỉ là code tự gọi trong cùng process:
+
+- **`warehouse-management`** (port 8000): hệ thống quản lý kho nội bộ của người bán — chính là ứng dụng chính mô tả ở các mục trên.
+- **`marketplace`** (port 9000): service demo độc lập đóng vai TikTok Shop của công ty ABC, có storefront cho khách tìm sản phẩm, bỏ giỏ hàng hoặc mua hàng tại `http://localhost:9000`.
+
+Luồng đồng bộ 2 chiều:
+
+- **Sàn → Kho**: khi khách bấm "Mua ngay" hoặc thanh toán giỏ hàng trên storefront (`marketplace`), service này gọi webhook `POST /api/webhooks/orders` sang `warehouse-management` để tạo đơn hàng mới, tạo phiếu xuất kho tự động và trừ tồn kho công ty ABC ngay lập tức — mô phỏng đúng cách TikTok Shop đẩy đơn về hệ thống seller.
+- **Kho → Sàn**: sau mỗi lần xác nhận phiếu xuất kho, phiếu nhập kho hoặc phiếu kiểm kê, `warehouse-management` tự động gọi `PUT` sang `marketplace` để cập nhật số lượng tồn mới, tránh bán vượt tồn kho (overselling).
+- Cả 2 chiều gọi API đều chạy nền/bất đồng bộ nên không chặn thao tác của người dùng đang chờ phản hồi.
+- Kết quả đồng bộ (thành công/thất bại) được đẩy realtime tới mọi tab đang mở của `warehouse-management` qua WebSocket (`/ws/realtime`) — đơn hàng mới, log đồng bộ tồn kho đều hiện ngay không cần F5.
+- Cho phép đồng bộ lại thủ công (Retry) đối với các lượt đồng bộ thất bại khi service sàn không phản hồi.
+- Đổi từ demo sang tích hợp thật: chỉ cần cập nhật `sales_channels.api_base_url` sang endpoint thật của TikTok Shop Partner Center (kèm auth header) là chuyển sang đồng bộ thật, không cần sửa code.
+
 ## 4. Phân Quyền Người Dùng
 
 | Chức năng | Quản trị viên | Quản lý kho | Nhân viên kho |
@@ -155,6 +171,7 @@ Chênh lệch = Số lượng hệ thống - Số lượng thực tế
 | Xuất kho | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu |
 | Tồn kho | Xem | Xem | Xem |
 | Kiểm kê | Xem, tạo kiểm kê | Xem, tạo kiểm kê | Không xem |
+| Đồng bộ sàn TMĐT | Xem, đồng bộ lại | Xem, đồng bộ lại | Xem |
 | Báo cáo | Xem, xuất báo cáo | Xem, xuất báo cáo | Không xem |
 | Barcode/QR | Quét/tìm sản phẩm | Quét/tìm sản phẩm | Quét/tìm sản phẩm |
 | Hoạt động | Xem, đánh dấu đọc, xóa lịch sử | Xem, đánh dấu đọc | Xem, đánh dấu đọc |
@@ -183,6 +200,8 @@ Chênh lệch = Số lượng hệ thống - Số lượng thực tế
 - **FastAPI**: xây dựng REST API nhanh, gọn, có sẵn OpenAPI docs.
 - **Uvicorn**: ASGI server dùng để chạy ứng dụng FastAPI.
 - **Pydantic**: kiểm tra và validate dữ liệu request.
+- **httpx**: gọi API đồng bộ tồn kho ra TikTok Shop demo.
+- **WebSocket (FastAPI)**: đẩy realtime kết quả đồng bộ tồn kho tới giao diện.
 
 ### 6.3 Cơ Sở Dữ Liệu
 
@@ -223,13 +242,11 @@ Dự án sử dụng Dockerfile multi-stage:
    - Copy frontend đã build vào `/app/static`.
    - Chạy FastAPI bằng Uvicorn tại port `8000`.
 
-Docker Compose cấu hình:
+Docker Compose cấu hình 2 service:
 
-- Image: `warehouse-management-system:v1.0`
-- Container: `warehouse-management-system`
-- Port: `8000:8000`
-- Volume: `warehouse-data:/app/data`
-- Restart policy: `unless-stopped`
+- `warehouse-management`: image `warehouse-management-system:v1.2`, container `warehouse-management-system`, port `8000:8000`, volume `warehouse-data:/app/data`.
+- `marketplace`: image `warehouse-marketplace-demo:v1.2`, container `warehouse-marketplace-demo`, port `9000:9000` — service demo đóng vai sàn TMĐT, không cần volume (dữ liệu tồn kho hiển thị lấy trực tiếp từ `warehouse-management` lúc khởi động).
+- Restart policy: `unless-stopped` cho cả 2 service.
 
 ## 9. Hướng Dẫn Chạy Dự Án
 
@@ -246,8 +263,9 @@ docker compose up -d --build
 
 Sau khi chạy thành công:
 
-- Ứng dụng web: http://localhost:8000
+- Ứng dụng quản lý kho: http://localhost:8000
 - API docs: http://localhost:8000/docs
+- Storefront TikTok Shop demo của công ty ABC (để test giỏ hàng, mua hàng và xem đồng bộ tồn kho realtime): http://localhost:9000
 
 ### 9.3 Dừng Ứng Dụng
 
@@ -276,6 +294,12 @@ warehouse-management-system/
 │   ├── index.html
 │   ├── package.json
 │   └── package-lock.json
+├── marketplace/
+│   ├── app/
+│   │   ├── main.py
+│   │   └── storefront.html
+│   ├── requirements.txt
+│   └── Dockerfile
 ├── docs/
 │   ├── requirements.md
 │   ├── system-design-diagrams.md

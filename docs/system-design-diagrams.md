@@ -218,7 +218,7 @@ Ghi chu: Quan he `STOCK_ISSUES.order_id -> ORDERS.id` dang duoc xu ly theo logic
 | code | TEXT | UNIQUE, NOT NULL | So don hang |
 | order_date | TEXT | NOT NULL | Ngay dat hang |
 | customer_name | TEXT | NOT NULL | Ten khach hang |
-| channel | TEXT | NOT NULL | Kenh ban hang: Website, Shopee, Lazada, TikTok Shop |
+| channel | TEXT | NOT NULL | Kenh ban hang: Website, TikTok Shop |
 | status | TEXT | NOT NULL | Trang thai don |
 | total_amount | REAL | DEFAULT 0 | Tong gia tri don hang |
 | note | TEXT |  | Ghi chu |

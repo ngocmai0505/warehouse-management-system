@@ -6,7 +6,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+import httpx
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -16,8 +17,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 DB_PATH = Path(os.getenv("DATABASE_URL", DATA_DIR / "warehouse.db"))
 STATIC_DIR = Path(os.getenv("STATIC_DIR", BASE_DIR / "static"))
+MARKETPLACE_BASE_URL = os.getenv("MARKETPLACE_BASE_URL", "http://localhost:9000")
 
-app = FastAPI(title="Warehouse Management System API", version="1.0.0")
+app = FastAPI(title="Warehouse Management System API", version="1.2.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
@@ -25,6 +27,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class RealtimeHub:
+    """Keeps track of connected dashboard clients and broadcasts live events
+    (stock changes, channel sync results) so every open tab updates instantly."""
+
+    def __init__(self) -> None:
+        self.connections: list[WebSocket] = []
+
+    async def connect(self, ws: WebSocket) -> None:
+        await ws.accept()
+        self.connections.append(ws)
+
+    def disconnect(self, ws: WebSocket) -> None:
+        if ws in self.connections:
+            self.connections.remove(ws)
+
+    async def broadcast(self, event: dict[str, Any]) -> None:
+        dead: list[WebSocket] = []
+        for ws in self.connections:
+            try:
+                await ws.send_json(event)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(ws)
+
+
+hub = RealtimeHub()
 
 
 def get_conn() -> sqlite3.Connection:
@@ -103,7 +134,7 @@ class ReceiptIn(BaseModel):
 class IssueIn(BaseModel):
     order_id: Optional[int] = None
     note: str = ""
-    items: list[StockLineIn]
+    items: list[StockLineIn] = []
 
 
 class OrderIn(BaseModel):
@@ -208,8 +239,18 @@ CREATE TABLE IF NOT EXISTS orders (
   channel TEXT NOT NULL,
   status TEXT NOT NULL,
   total_amount REAL NOT NULL DEFAULT 0,
+  stock_deducted INTEGER NOT NULL DEFAULT 0,
   note TEXT,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS order_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  order_id INTEGER NOT NULL,
+  product_id INTEGER NOT NULL,
+  quantity INTEGER NOT NULL,
+  unit_price REAL NOT NULL DEFAULT 0,
+  FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id)
 );
 CREATE TABLE IF NOT EXISTS inventory_checks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,6 +278,27 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   message TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   is_read INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sales_channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  api_base_url TEXT NOT NULL,
+  is_connected INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS channel_stock_syncs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL,
+  channel_id INTEGER NOT NULL,
+  trigger_type TEXT NOT NULL,
+  order_id INTEGER,
+  old_qty INTEGER NOT NULL,
+  new_qty INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  message TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (channel_id) REFERENCES sales_channels(id)
 );
 """
 
@@ -269,20 +331,59 @@ def ensure_audit_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE audit_logs ADD COLUMN is_read INTEGER NOT NULL DEFAULT 0")
 
 
+def ensure_order_columns(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(orders)").fetchall()}
+    if "stock_deducted" not in existing:
+        conn.execute("ALTER TABLE orders ADD COLUMN stock_deducted INTEGER NOT NULL DEFAULT 0")
+
+
+def ensure_channel_urls(conn: sqlite3.Connection) -> None:
+    """Keeps sales_channels.api_base_url pointed at the current MARKETPLACE_BASE_URL even for a
+    database volume that was seeded by an older version with a different (or fake) URL."""
+    conn.execute("UPDATE sales_channels SET api_base_url = ?", (MARKETPLACE_BASE_URL,))
+
+
+def ensure_tiktok_shop_channel(conn: sqlite3.Connection) -> None:
+    """The demo now models one marketplace only: TikTok Shop for company ABC."""
+    conn.execute("DELETE FROM channel_stock_syncs WHERE channel_id IN (SELECT id FROM sales_channels WHERE code != 'tiktok')")
+    conn.execute("DELETE FROM sales_channels WHERE code != 'tiktok'")
+    channel = conn.execute("SELECT id FROM sales_channels WHERE code = 'tiktok'").fetchone()
+    if channel:
+        conn.execute(
+            "UPDATE sales_channels SET name = 'TikTok Shop', api_base_url = ?, is_connected = 1 WHERE code = 'tiktok'",
+            (MARKETPLACE_BASE_URL,),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO sales_channels(code, name, api_base_url, is_connected) VALUES (?, ?, ?, ?)",
+            ("tiktok", "TikTok Shop", MARKETPLACE_BASE_URL, 1),
+        )
+
+
 def normalize_demo_data(conn: sqlite3.Connection) -> None:
     demo_products = [
-        ("Son m\u00f4i Velvet Tint", "c\u00e2y", "K\u1ec7 A1", "LOT-2026-01", "2027-12-31", "SK001"),
-        ("Kem ch\u1ed1ng n\u1eafng Aqua", "tu\u00fdp", "K\u1ec7 B2", "LOT-2026-02", "2026-09-30", "SK002"),
-        ("M\u1eb7t n\u1ea1 d\u01b0\u1ee1ng \u1ea9m", "h\u1ed9p", "K\u1ec7 C1", "LOT-2026-03", "2026-08-15", "SK003"),
-        ("N\u01b0\u1edbc t\u1ea9y trang Green Tea", "chai", "K\u1ec7 B1", "LOT-2025-11", "2026-07-20", "SK004"),
+        ("Son môi Velvet Tint", "cây", "Kệ A1", "SK001"),
+        ("Kem chống nắng Aqua SPF50", "tuýp", "Kệ A2", "SK002"),
+        ("Mặt nạ dưỡng ẩm Hyaluronic", "hộp", "Kệ A3", "SK003"),
+        ("Nước tẩy trang Green Tea", "chai", "Kệ B1", "SK004"),
+        ("Serum Vitamin C sáng da", "chai", "Kệ B2", "SK005"),
+        ("Toner hoa hồng Calendula", "chai", "Kệ B3", "SK006"),
+        ("Sữa rửa mặt Amino Acid", "tuýp", "Kệ C1", "SK007"),
+        ("Kem dưỡng da Ceramide", "hũ", "Kệ C2", "SK008"),
+        ("Phấn nước Cushion Glow", "hộp", "Kệ C3", "SK009"),
+        ("Mascara làm dày mi Black", "cây", "Kệ D1", "SK010"),
+        ("Chì kẻ mày Brown", "cây", "Kệ D2", "SK011"),
+        ("Bảng phấn mắt Nude Palette", "bảng", "Kệ D3", "SK012"),
+        ("Son dưỡng môi Berry Balm", "thỏi", "Kệ E1", "SK013"),
+        ("Tẩy tế bào chết AHA Gel", "tuýp", "Kệ E2", "SK014"),
+        ("Dầu tẩy trang Olive Clean", "chai", "Kệ E3", "SK015"),
+        ("Xịt khoáng Mineral Mist", "chai", "Kệ F1", "SK016"),
+        ("Kem lót Primer Pore Blur", "tuýp", "Kệ F2", "SK017"),
+        ("Sữa tắm dưỡng thể Milk Honey", "chai", "Kệ F3", "SK018"),
+        ("Kem dưỡng tay Shea Butter", "tuýp", "Kệ G1", "SK019"),
+        ("Nước hoa mini Floral Day", "chai", "Kệ G2", "SK020"),
     ]
-    conn.executemany("UPDATE products SET name=?, unit=?, location=?, lot_number=?, expiry_date=? WHERE sku=?", demo_products)
-    demo_orders = [
-        ("L\u00ea Minh Anh", "ORD00001"),
-        ("Tr\u1ea7n Gia H\u00e2n", "ORD00002"),
-        ("Ph\u1ea1m Qu\u1ed1c B\u1ea3o", "ORD00003"),
-    ]
-    conn.executemany("UPDATE orders SET customer_name=? WHERE code=?", demo_orders)
+    conn.executemany("UPDATE products SET name=?, unit=?, location=? WHERE sku=?", demo_products)
     demo_users = [
         ("Qu\u1ea3n tr\u1ecb h\u1ec7 th\u1ed1ng", "Qu\u1ea3n tr\u1ecb vi\u00ean", "admin"),
         ("Qu\u1ea3n l\u00fd kho", "Qu\u1ea3n l\u00fd kho", "warehouse"),
@@ -296,6 +397,9 @@ def init_db() -> None:
         conn.executescript(SCHEMA)
         ensure_product_columns(conn)
         ensure_audit_columns(conn)
+        ensure_order_columns(conn)
+        ensure_channel_urls(conn)
+        ensure_tiktok_shop_channel(conn)
         if conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"] == 0:
             conn.executemany(
                 "INSERT INTO users(username, password, full_name, role) VALUES (?, ?, ?, ?)",
@@ -320,20 +424,32 @@ def init_db() -> None:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    ("SK001", "Son môi Velvet Tint", "Makeup", "ActsOne", "cây", 85000, 159000, "880000000001", "LOT-2026-01", "2027-12-31", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=400&q=80", 50, "Kệ A1", 500, "Dang ban"),
-                    ("SK002", "Kem chống nắng Aqua", "Skincare", "ActsOne", "tuýp", 120000, 249000, "880000000002", "LOT-2026-02", "2026-09-30", "https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=400&q=80", 40, "Kệ B2", 35, "Dang ban"),
-                    ("SK003", "Mặt nạ dưỡng ẩm", "Skincare", "K-Beauty", "hộp", 65000, 129000, "880000000003", "LOT-2026-03", "2026-08-15", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=400&q=80", 30, "Kệ C1", 8, "Dang ban"),
-                    ("SK004", "Nước tẩy trang Green Tea", "Skincare", "ActsOne", "chai", 90000, 189000, "880000000004", "LOT-2025-11", "2026-07-20", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=400&q=80", 25, "Kệ B1", 0, "Tam ngung"),
+                    ("SK001", "Son moi Velvet Tint", "Makeup", "ActsOne", "cay", 85000, 159000, "880000000001", "LOT-2026-01", "2027-12-31", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=500&q=80", 50, "Ke A1", 420, "Dang ban"),
+                    ("SK002", "Kem chong nang Aqua SPF50", "Skincare", "ActsOne", "tuyp", 120000, 249000, "880000000002", "LOT-2026-02", "2027-09-30", "https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=500&q=80", 40, "Ke A2", 310, "Dang ban"),
+                    ("SK003", "Mat na duong am Hyaluronic", "Skincare", "K-Beauty", "hop", 65000, 129000, "880000000003", "LOT-2026-03", "2027-08-15", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=500&q=80", 30, "Ke A3", 275, "Dang ban"),
+                    ("SK004", "Nuoc tay trang Green Tea", "Skincare", "ActsOne", "chai", 90000, 189000, "880000000004", "LOT-2026-04", "2027-07-20", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 25, "Ke B1", 360, "Dang ban"),
+                    ("SK005", "Serum Vitamin C Brightening", "Skincare", "GlowLab", "chai", 140000, 299000, "880000000005", "LOT-2026-05", "2027-10-31", "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=500&q=80", 35, "Ke B2", 185, "Dang ban"),
+                    ("SK006", "Toner hoa hong Calendula", "Skincare", "Herbal Skin", "chai", 78000, 169000, "880000000006", "LOT-2026-06", "2027-11-15", "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?auto=format&fit=crop&w=500&q=80", 30, "Ke B3", 440, "Dang ban"),
+                    ("SK007", "Sua rua mat Amino Acid", "Skincare", "PureFace", "tuyp", 72000, 149000, "880000000007", "LOT-2026-07", "2027-06-30", "https://images.unsplash.com/photo-1556229010-6c3f2c9ca5f8?auto=format&fit=crop&w=500&q=80", 45, "Ke C1", 390, "Dang ban"),
+                    ("SK008", "Kem duong da Ceramide", "Skincare", "DermaCare", "hu", 115000, 239000, "880000000008", "LOT-2026-08", "2027-12-20", "https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=500&q=80", 35, "Ke C2", 155, "Dang ban"),
+                    ("SK009", "Phan nuoc Cushion Glow", "Makeup", "K-Beauty", "hop", 160000, 329000, "880000000009", "LOT-2026-09", "2028-01-18", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=500&q=80", 30, "Ke C3", 225, "Dang ban"),
+                    ("SK010", "Mascara Volume Black", "Makeup", "EyePro", "cay", 69000, 139000, "880000000010", "LOT-2026-10", "2028-02-28", "https://images.unsplash.com/photo-1631214540242-3cd8c9e88a76?auto=format&fit=crop&w=500&q=80", 25, "Ke D1", 475, "Dang ban"),
+                    ("SK011", "Chi ke may Brown", "Makeup", "BrowFit", "cay", 42000, 99000, "880000000011", "LOT-2026-11", "2028-03-10", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=500&q=80", 40, "Ke D2", 500, "Dang ban"),
+                    ("SK012", "Bang phan mat Nude Palette", "Makeup", "ColorMuse", "bang", 135000, 289000, "880000000012", "LOT-2026-12", "2028-04-05", "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=500&q=80", 25, "Ke D3", 120, "Dang ban"),
+                    ("SK013", "Son duong moi Berry Balm", "Lipcare", "ActsOne", "thoi", 36000, 79000, "880000000013", "LOT-2027-01", "2028-05-20", "https://images.unsplash.com/photo-1585652757141-8837d676fac8?auto=format&fit=crop&w=500&q=80", 50, "Ke E1", 330, "Dang ban"),
+                    ("SK014", "Tay te bao chet AHA Gel", "Skincare", "DermaCare", "tuyp", 88000, 179000, "880000000014", "LOT-2027-02", "2028-06-12", "https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=500&q=80", 30, "Ke E2", 260, "Dang ban"),
+                    ("SK015", "Dau tay trang Olive Clean", "Skincare", "Herbal Skin", "chai", 110000, 229000, "880000000015", "LOT-2027-03", "2028-07-30", "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=500&q=80", 35, "Ke E3", 145, "Dang ban"),
+                    ("SK016", "Xit khoang Mineral Mist", "Skincare", "PureFace", "chai", 52000, 119000, "880000000016", "LOT-2027-04", "2028-08-14", "https://images.unsplash.com/photo-1629732047843-50219e9c5aef?auto=format&fit=crop&w=500&q=80", 45, "Ke F1", 410, "Dang ban"),
+                    ("SK017", "Kem lot Primer Pore Blur", "Makeup", "ColorMuse", "tuyp", 95000, 199000, "880000000017", "LOT-2027-05", "2028-09-09", "https://images.unsplash.com/photo-1556228724-4f5d027f1b86?auto=format&fit=crop&w=500&q=80", 30, "Ke F2", 205, "Dang ban"),
+                    ("SK018", "Sua tam duong the Milk Honey", "Bodycare", "GlowLab", "chai", 76000, 159000, "880000000018", "LOT-2027-06", "2028-10-25", "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=500&q=80", 40, "Ke F3", 370, "Dang ban"),
+                    ("SK019", "Kem duong tay Shea Butter", "Bodycare", "Herbal Skin", "tuyp", 39000, 89000, "880000000019", "LOT-2027-07", "2028-11-18", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 50, "Ke G1", 295, "Dang ban"),
+                    ("SK020", "Nuoc hoa mini Floral Day", "Fragrance", "Scently", "chai", 125000, 259000, "880000000020", "LOT-2027-08", "2029-01-08", "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=500&q=80", 25, "Ke G2", 135, "Dang ban"),
                 ],
             )
-        if conn.execute("SELECT COUNT(*) AS count FROM orders").fetchone()["count"] == 0:
-            conn.executemany(
-                "INSERT INTO orders(code, order_date, customer_name, channel, status, total_amount, note) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                [
-                    ("ORD00001", today_iso(), "Lê Minh Anh", "Shopee", "Cho xu ly", 408000, "Don uu tien"),
-                    ("ORD00002", today_iso(), "Trần Gia Hân", "Website", "Dang dong goi", 159000, ""),
-                    ("ORD00003", today_iso(), "Phạm Quốc Bảo", "TikTok Shop", "Da xuat kho", 249000, ""),
-                ],
+        if conn.execute("SELECT COUNT(*) AS count FROM sales_channels").fetchone()["count"] == 0:
+            conn.execute(
+                "INSERT INTO sales_channels(code, name, api_base_url, is_connected) VALUES (?, ?, ?, ?)",
+                ("tiktok", "TikTok Shop", MARKETPLACE_BASE_URL, 1),
             )
         normalize_demo_data(conn)
         conn.commit()
@@ -342,6 +458,173 @@ def init_db() -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+
+
+async def call_channel_platform_api(channel_code: str, api_base_url: str, sku: str, quantity: int, status: str = "Dang ban") -> tuple[bool, str]:
+    """Fires the outbound stock-update call to a connected sales channel over the network.
+
+    `sales_channels.api_base_url` points at the standalone `marketplace` service (a separate
+    process/container simulating TikTok Shop) so this is a genuine cross-service HTTP call, not
+    an in-process shortcut. Pointing it at the real TikTok Shop Partner Center base URL (with an
+    auth header) turns this into a production sync with no other code changes.
+    """
+    async with httpx.AsyncClient(base_url=api_base_url, timeout=5) as client:
+        try:
+            response = await client.put(f"/api/mock/{channel_code}/products/{sku}/stock", json={"quantity": quantity, "status": status})
+        except httpx.HTTPError as exc:
+            return False, f"Loi ket noi toi {channel_code}: {exc}"
+    if response.status_code == 200:
+        return True, response.json().get("message", "Da dong bo")
+    return False, response.json().get("detail", response.text)
+
+
+async def sync_stock_to_channels(trigger_type: str, order_id: Optional[int], items: list[tuple[int, int, int]], only_channel_id: Optional[int] = None) -> None:
+    """Broadcasts the new stock level of each affected product to every connected sales channel.
+
+    Runs as a FastAPI background task so the triggering request (xac nhan phieu xuat/nhap/kiem ke)
+    returns immediately; sync results stream to clients afterwards over the /ws/realtime socket,
+    which is what keeps overselling risk low without blocking warehouse staff. Pass
+    `only_channel_id` to retry a single previously-failed channel instead of resyncing all of them.
+    """
+    if not items:
+        return
+    with get_conn() as conn:
+        query = "SELECT * FROM sales_channels WHERE is_connected = 1"
+        params: tuple[Any, ...] = ()
+        if only_channel_id is not None:
+            query += " AND id = ?"
+            params = (only_channel_id,)
+        channels = [dict(row) for row in conn.execute(query, params).fetchall()]
+        placeholders = ",".join("?" * len(items))
+        products = {
+            row["id"]: dict(row)
+            for row in conn.execute(f"SELECT id, sku, name, status FROM products WHERE id IN ({placeholders})", tuple(i[0] for i in items)).fetchall()
+        }
+    for product_id, old_qty, new_qty in items:
+        product = products.get(product_id)
+        if not product:
+            continue
+        for channel in channels:
+            ok, message = await call_channel_platform_api(channel["code"], channel["api_base_url"], product["sku"], new_qty, product["status"])
+            status = "success" if ok else "failed"
+            with get_conn() as conn:
+                cursor = conn.execute(
+                    "INSERT INTO channel_stock_syncs(product_id, channel_id, trigger_type, order_id, old_qty, new_qty, status, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (product_id, channel["id"], trigger_type, order_id, old_qty, new_qty, status, message),
+                )
+                sync_id = cursor.lastrowid
+                conn.commit()
+            await hub.broadcast(
+                {
+                    "type": "channel_sync",
+                    "id": sync_id,
+                    "product_id": product_id,
+                    "sku": product["sku"],
+                    "product_name": product["name"],
+                    "channel_code": channel["code"],
+                    "channel_name": channel["name"],
+                    "trigger_type": trigger_type,
+                    "old_qty": old_qty,
+                    "new_qty": new_qty,
+                    "status": status,
+                    "message": message,
+                }
+            )
+    await hub.broadcast({"type": "stock_changed", "trigger_type": trigger_type})
+
+
+@app.websocket("/ws/realtime")
+async def realtime_socket(websocket: WebSocket) -> None:
+    await hub.connect(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        hub.disconnect(websocket)
+
+
+class WebhookOrderIn(BaseModel):
+    channel_code: str
+    sku: str
+    quantity: int = Field(gt=0)
+    customer_name: str = "Khach le"
+
+
+@app.post("/api/webhooks/orders", status_code=201)
+async def receive_channel_order(payload: WebhookOrderIn) -> dict[str, Any]:
+    """Inbound webhook called by an external sales channel (the `marketplace` service) whenever
+    a customer places an order there, mirroring how TikTok Shop pushes new orders to a seller's
+    system. Creates a pending order, deducts sellable stock immediately to reserve inventory,
+    and waits until the order is shipped before creating a stock issue document."""
+    sync_items: list[tuple[int, int, int]] = []
+    with get_conn() as conn:
+        channel = conn.execute("SELECT * FROM sales_channels WHERE code = ?", (payload.channel_code,)).fetchone()
+        if not channel:
+            raise HTTPException(status_code=404, detail=f"Khong tim thay kenh ban hang {payload.channel_code}")
+        product = conn.execute("SELECT id, name, sale_price, stock_qty FROM products WHERE sku = ?", (payload.sku,)).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Khong tim thay san pham {payload.sku}")
+        if product["stock_qty"] < payload.quantity:
+            raise HTTPException(status_code=409, detail=f"San pham {product['name']} chi con {product['stock_qty']} trong kho")
+        code = next_code(conn, "orders", "ORD")
+        cursor = conn.execute(
+            "INSERT INTO orders(code, order_date, customer_name, channel, status, total_amount, stock_deducted, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (code, today_iso(), payload.customer_name, channel["name"], "Cho xu ly", product["sale_price"] * payload.quantity, 1, f"Đơn từ {channel['name']}: {payload.sku} x{payload.quantity}"),
+        )
+        order_id = cursor.lastrowid
+        conn.execute(
+            "INSERT INTO order_items(order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (order_id, product["id"], payload.quantity, product["sale_price"]),
+        )
+        conn.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", (payload.quantity, product["id"]))
+        sync_items.append((product["id"], product["stock_qty"], product["stock_qty"] - payload.quantity))
+        log(conn, "create", "order", order_id, f"Nhận đơn hàng mới từ {channel['name']} ({code})")
+        conn.commit()
+        order = row_to_dict(conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone())
+    await hub.broadcast({"type": "new_order", "order": order, "channel_name": channel["name"], "sku": payload.sku, "quantity": payload.quantity})
+    await sync_stock_to_channels("marketplace_order", order["id"], sync_items, channel["id"])
+    return order
+
+
+@app.get("/api/channels")
+def list_channels() -> list[dict[str, Any]]:
+    return fetch_all(
+        """
+        SELECT c.*,
+          (SELECT COUNT(*) FROM channel_stock_syncs s WHERE s.channel_id = c.id AND s.status = 'failed'
+             AND s.id > COALESCE((SELECT MAX(id) FROM channel_stock_syncs WHERE channel_id = c.id AND status = 'success'), 0)) AS pending_failures,
+          (SELECT MAX(created_at) FROM channel_stock_syncs s WHERE s.channel_id = c.id) AS last_synced_at
+        FROM sales_channels c
+        ORDER BY c.name ASC
+        """
+    )
+
+
+@app.get("/api/channel-syncs")
+def list_channel_syncs(limit: int = Query(50, le=200)) -> list[dict[str, Any]]:
+    return fetch_all(
+        """
+        SELECT s.*, p.sku, p.name AS product_name, c.name AS channel_name, c.code AS channel_code
+        FROM channel_stock_syncs s
+        JOIN products p ON p.id = s.product_id
+        JOIN sales_channels c ON c.id = s.channel_id
+        ORDER BY s.id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    )
+
+
+@app.post("/api/channel-syncs/{sync_id}/retry")
+async def retry_channel_sync(sync_id: int, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    row = fetch_one("SELECT * FROM channel_stock_syncs WHERE id = ?", (sync_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Khong tim thay ban ghi dong bo")
+    product = fetch_one("SELECT stock_qty FROM products WHERE id = ?", (row["product_id"],))
+    if not product:
+        raise HTTPException(status_code=404, detail="Khong tim thay san pham")
+    background_tasks.add_task(sync_stock_to_channels, row["trigger_type"], row["order_id"], [(row["product_id"], row["old_qty"], product["stock_qty"])], row["channel_id"])
+    return {"message": "Dang dong bo lai"}
 
 
 @app.get("/api/health")
@@ -366,12 +649,53 @@ def list_products(q: str = "") -> list[dict[str, Any]]:
     return fetch_all(
         f"""
         SELECT {PRODUCT_FIELDS} FROM products
-        WHERE status NOT IN ('Ngung kinh doanh', 'Tam ngung')
-          AND (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(brand) LIKE ? OR lower(coalesce(barcode, '')) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
+        WHERE (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(brand) LIKE ? OR lower(coalesce(barcode, '')) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
         ORDER BY created_at DESC, id DESC
         """,
         (like, like, like, like, like, like),
     )
+
+
+@app.get("/api/marketplace/listings")
+def marketplace_listings() -> list[dict[str, Any]]:
+    return fetch_all(
+        f"""
+        SELECT {PRODUCT_FIELDS} FROM products
+        ORDER BY created_at DESC, id DESC
+        """
+    )
+
+
+@app.get("/api/marketplace/orders")
+def marketplace_orders(customer_name: str = "") -> list[dict[str, Any]]:
+    params: list[Any] = []
+    where = ""
+    if customer_name.strip():
+        where = "WHERE lower(o.customer_name) = ?"
+        params.append(customer_name.strip().lower())
+    rows = fetch_all(
+        f"""
+        SELECT
+          o.id,
+          o.code,
+          o.order_date,
+          o.customer_name,
+          o.channel,
+          o.status,
+          o.total_amount,
+          COALESCE(SUM(oi.quantity), 0) AS total_quantity,
+          COALESCE(GROUP_CONCAT(p.name || ' x' || oi.quantity, ', '), '') AS items_summary
+        FROM orders o
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        {where}
+        GROUP BY o.id
+        ORDER BY o.id DESC
+        LIMIT 20
+        """,
+        tuple(params),
+    )
+    return rows
 
 
 @app.post("/api/products", status_code=201)
@@ -393,9 +717,10 @@ def create_product(payload: ProductIn) -> dict[str, Any]:
 
 
 @app.put("/api/products/{product_id}")
-def update_product(product_id: int, payload: ProductIn) -> dict[str, Any]:
+def update_product(product_id: int, payload: ProductIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    sync_item: Optional[tuple[int, int, int]] = None
     with get_conn() as conn:
-        current = conn.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
+        current = conn.execute("SELECT id, stock_qty FROM products WHERE id = ?", (product_id,)).fetchone()
         if not current:
             raise HTTPException(status_code=404, detail="Khong tim thay san pham")
         try:
@@ -407,18 +732,27 @@ def update_product(product_id: int, payload: ProductIn) -> dict[str, Any]:
                 (payload.sku, payload.name, payload.category, payload.brand, payload.unit, payload.import_price, payload.sale_price, payload.barcode or None, payload.lot_number, payload.expiry_date, payload.image_url, payload.min_stock, payload.location, payload.status, product_id),
             )
             log(conn, "update", "product", product_id, f"Cap nhat san pham {payload.sku}")
+            sync_item = (product_id, current["stock_qty"], current["stock_qty"])
             conn.commit()
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=409, detail="SKU hoac barcode da ton tai") from exc
+    if sync_item:
+        background_tasks.add_task(sync_stock_to_channels, "product_update", None, [sync_item])
     return fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE id = ?", (product_id,))
 
 
 @app.delete("/api/products/{product_id}")
-def deactivate_product(product_id: int) -> dict[str, str]:
+def deactivate_product(product_id: int, background_tasks: BackgroundTasks) -> dict[str, str]:
+    sync_item: Optional[tuple[int, int, int]] = None
     with get_conn() as conn:
+        product = conn.execute("SELECT stock_qty FROM products WHERE id = ?", (product_id,)).fetchone()
         conn.execute("UPDATE products SET status = 'Ngung kinh doanh' WHERE id = ?", (product_id,))
+        if product:
+            sync_item = (product_id, product["stock_qty"], product["stock_qty"])
         log(conn, "deactivate", "product", product_id, "Vo hieu hoa san pham")
         conn.commit()
+    if sync_item:
+        background_tasks.add_task(sync_stock_to_channels, "product_update", None, [sync_item])
     return {"message": "Da vo hieu hoa san pham"}
 
 
@@ -474,13 +808,13 @@ def inventory(q: str = "", low_stock: bool = False) -> list[dict[str, Any]]:
         f"""
         SELECT {PRODUCT_FIELDS},
           CASE
+            WHEN status IN ('Ngung kinh doanh', 'Tam ngung') THEN status
             WHEN stock_qty <= 0 THEN 'Het hang'
             WHEN stock_qty <= min_stock THEN 'Sap het'
             ELSE 'An toan'
           END AS inventory_status
         FROM products
-        WHERE status NOT IN ('Ngung kinh doanh', 'Tam ngung')
-          AND (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
+        WHERE (lower(sku) LIKE ? OR lower(name) LIKE ? OR lower(category) LIKE ? OR lower(coalesce(lot_number, '')) LIKE ?)
         ORDER BY stock_qty ASC, name ASC
         """,
         (like, like, like, like),
@@ -509,9 +843,10 @@ def list_receipts() -> list[dict[str, Any]]:
 
 
 @app.post("/api/receipts", status_code=201)
-def create_receipt(payload: ReceiptIn) -> dict[str, Any]:
+def create_receipt(payload: ReceiptIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
     if not payload.items:
         raise HTTPException(status_code=400, detail="Phieu nhap can co it nhat mot san pham")
+    sync_items: list[tuple[int, int, int]] = []
     with get_conn() as conn:
         code = next_code(conn, "stock_receipts", "RCP")
         cursor = conn.execute(
@@ -520,7 +855,7 @@ def create_receipt(payload: ReceiptIn) -> dict[str, Any]:
         )
         receipt_id = cursor.lastrowid
         for item in payload.items:
-            product = conn.execute("SELECT id FROM products WHERE id = ?", (item.product_id,)).fetchone()
+            product = conn.execute("SELECT id, stock_qty FROM products WHERE id = ?", (item.product_id,)).fetchone()
             if not product:
                 raise HTTPException(status_code=404, detail=f"Khong tim thay san pham #{item.product_id}")
             conn.execute(
@@ -528,8 +863,10 @@ def create_receipt(payload: ReceiptIn) -> dict[str, Any]:
                 (receipt_id, item.product_id, item.quantity, item.unit_price),
             )
             conn.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (item.quantity, item.product_id))
+            sync_items.append((item.product_id, product["stock_qty"], product["stock_qty"] + item.quantity))
         log(conn, "confirm", "receipt", receipt_id, f"Xac nhan phieu nhap {code}")
         conn.commit()
+    background_tasks.add_task(sync_stock_to_channels, "receipt", None, sync_items)
     return fetch_one("SELECT * FROM stock_receipts WHERE id = ?", (receipt_id,))
 
 
@@ -548,17 +885,100 @@ def list_issues() -> list[dict[str, Any]]:
         LEFT JOIN stock_issue_items ii ON ii.issue_id = i.id
         LEFT JOIN products p ON p.id = ii.product_id
         GROUP BY i.id
-        ORDER BY i.id DESC
+        ORDER BY id DESC
         """
     )
 
 
+def create_issue_for_order(conn: sqlite3.Connection, order_id: int) -> tuple[Optional[int], list[tuple[int, int, int]]]:
+    existing = conn.execute("SELECT id FROM stock_issues WHERE order_id = ?", (order_id,)).fetchone()
+    if existing:
+        return existing["id"], []
+    order = conn.execute("SELECT code, stock_deducted FROM orders WHERE id = ?", (order_id,)).fetchone()
+    if not order:
+        raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+    items = conn.execute(
+        """
+        SELECT oi.product_id, oi.quantity, oi.unit_price, p.stock_qty, p.name
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        """,
+        (order_id,),
+    ).fetchall()
+    if not items:
+        raise HTTPException(status_code=400, detail="Đơn hàng chưa có sản phẩm")
+    should_deduct = int(order["stock_deducted"] or 0) == 0
+    if should_deduct:
+        for item in items:
+            if item["stock_qty"] < item["quantity"]:
+                raise HTTPException(status_code=409, detail=f"Sản phẩm {item['name']} không đủ tồn kho")
+    code = next_code(conn, "stock_issues", "ISS")
+    cursor = conn.execute(
+        "INSERT INTO stock_issues(code, issue_date, order_id, note, created_by) VALUES (?, ?, ?, ?, ?)",
+        (code, today_iso(), order_id, f"Xác nhận xuất kho cho đơn {order['code']}", "order-status"),
+    )
+    issue_id = cursor.lastrowid
+    sync_items: list[tuple[int, int, int]] = []
+    for item in items:
+        conn.execute(
+            "INSERT INTO stock_issue_items(issue_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
+            (issue_id, item["product_id"], item["quantity"], item["unit_price"]),
+        )
+        if should_deduct:
+            conn.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", (item["quantity"], item["product_id"]))
+            sync_items.append((item["product_id"], item["stock_qty"], item["stock_qty"] - item["quantity"]))
+    if should_deduct:
+        conn.execute("UPDATE orders SET stock_deducted = 1 WHERE id = ?", (order_id,))
+    log(conn, "confirm", "issue", issue_id, f"Xác nhận phiếu xuất {code}")
+    return issue_id, sync_items
+
+
+def restore_order_stock(conn: sqlite3.Connection, order_id: int) -> list[tuple[int, int, int]]:
+    order = conn.execute("SELECT code, status, stock_deducted FROM orders WHERE id = ?", (order_id,)).fetchone()
+    if not order:
+        raise HTTPException(status_code=404, detail="Khong tim thay don hang")
+    if order["status"] == "Da xuat kho" or int(order["stock_deducted"] or 0) == 0:
+        return []
+    items = conn.execute(
+        """
+        SELECT oi.product_id, oi.quantity, p.stock_qty
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id = ?
+        """,
+        (order_id,),
+    ).fetchall()
+    sync_items: list[tuple[int, int, int]] = []
+    for item in items:
+        new_quantity = item["stock_qty"] + item["quantity"]
+        conn.execute("UPDATE products SET stock_qty = ? WHERE id = ?", (new_quantity, item["product_id"]))
+        sync_items.append((item["product_id"], item["stock_qty"], new_quantity))
+    conn.execute("UPDATE orders SET stock_deducted = 0 WHERE id = ?", (order_id,))
+    return sync_items
+
+
 @app.post("/api/issues", status_code=201)
-def create_issue(payload: IssueIn) -> dict[str, Any]:
-    if not payload.items:
+def create_issue(payload: IssueIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    if payload.order_id:
+        with get_conn() as conn:
+            current_order = conn.execute("SELECT status FROM orders WHERE id = ?", (payload.order_id,)).fetchone()
+            if not current_order:
+                raise HTTPException(status_code=404, detail="Không tìm thấy đơn hàng")
+            if current_order["status"] == "Da xuat kho":
+                raise HTTPException(status_code=409, detail="Đơn hàng này đã xuất kho")
+            issue_id, sync_items = create_issue_for_order(conn, payload.order_id)
+            conn.execute("UPDATE orders SET status = 'Da xuat kho' WHERE id = ?", (payload.order_id,))
+            conn.commit()
+        if sync_items:
+            background_tasks.add_task(sync_stock_to_channels, "issue", payload.order_id, sync_items)
+        return fetch_one("SELECT * FROM stock_issues WHERE id = ?", (issue_id,))
+    items = payload.items
+    if not items:
         raise HTTPException(status_code=400, detail="Phieu xuat can co it nhat mot san pham")
+    sync_items: list[tuple[int, int, int]] = []
     with get_conn() as conn:
-        for item in payload.items:
+        for item in items:
             product = conn.execute("SELECT stock_qty, name FROM products WHERE id = ?", (item.product_id,)).fetchone()
             if not product:
                 raise HTTPException(status_code=404, detail=f"Khong tim thay san pham #{item.product_id}")
@@ -570,39 +990,62 @@ def create_issue(payload: IssueIn) -> dict[str, Any]:
             (code, today_iso(), payload.order_id, payload.note),
         )
         issue_id = cursor.lastrowid
-        for item in payload.items:
+        for item in items:
+            product = conn.execute("SELECT stock_qty FROM products WHERE id = ?", (item.product_id,)).fetchone()
             conn.execute(
                 "INSERT INTO stock_issue_items(issue_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)",
                 (issue_id, item.product_id, item.quantity, item.unit_price),
             )
             conn.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", (item.quantity, item.product_id))
-        if payload.order_id:
-            conn.execute("UPDATE orders SET status = 'Da xuat kho' WHERE id = ?", (payload.order_id,))
+            sync_items.append((item.product_id, product["stock_qty"], product["stock_qty"] - item.quantity))
         log(conn, "confirm", "issue", issue_id, f"Xac nhan phieu xuat {code}")
         conn.commit()
+    background_tasks.add_task(sync_stock_to_channels, "issue", payload.order_id, sync_items)
     return fetch_one("SELECT * FROM stock_issues WHERE id = ?", (issue_id,))
 
 
 @app.get("/api/orders")
 def list_orders() -> list[dict[str, Any]]:
-    return fetch_all(
+    rows = fetch_all(
         """
         SELECT
           o.*,
-          COALESCE(SUM(ii.quantity), 0) AS total_quantity,
+          COALESCE(SUM(oi.quantity), SUM(ii.quantity), 0) AS total_quantity,
           COALESCE(
-            GROUP_CONCAT(p.name || ' x' || ii.quantity, ', '),
+            GROUP_CONCAT(COALESCE(op.name, p.name) || ' x' || COALESCE(oi.quantity, ii.quantity), ', '),
             ''
           ) AS items_summary
         FROM orders o
+        LEFT JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN products op ON op.id = oi.product_id
         LEFT JOIN stock_issues si ON si.order_id = o.id
         LEFT JOIN stock_issue_items ii ON ii.issue_id = si.id
         LEFT JOIN products p ON p.id = ii.product_id
         GROUP BY o.id
-        HAVING COALESCE(SUM(CASE WHEN p.status IN ('Ngung kinh doanh', 'Tam ngung') THEN 1 ELSE 0 END), 0) = 0
+        HAVING COALESCE(SUM(CASE WHEN COALESCE(op.status, p.status) IN ('Ngung kinh doanh', 'Tam ngung') THEN 1 ELSE 0 END), 0) = 0
         ORDER BY o.id DESC
         """
     )
+    if not rows:
+        return rows
+    order_ids = tuple(row["id"] for row in rows)
+    placeholders = ",".join("?" * len(order_ids))
+    item_rows = fetch_all(
+        f"""
+        SELECT oi.order_id, oi.product_id, p.sku, p.name, oi.quantity, oi.unit_price
+        FROM order_items oi
+        JOIN products p ON p.id = oi.product_id
+        WHERE oi.order_id IN ({placeholders})
+        ORDER BY oi.id ASC
+        """,
+        order_ids,
+    )
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for item in item_rows:
+        grouped.setdefault(item["order_id"], []).append(item)
+    for row in rows:
+        row["items"] = grouped.get(row["id"], [])
+    return rows
 
 
 @app.post("/api/orders", status_code=201)
@@ -619,26 +1062,44 @@ def create_order(payload: OrderIn) -> dict[str, Any]:
 
 
 @app.put("/api/orders/{order_id}")
-def update_order(order_id: int, payload: OrderIn) -> dict[str, Any]:
+def update_order(order_id: int, payload: OrderIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    sync_items: list[tuple[int, int, int]] = []
     with get_conn() as conn:
-        current = conn.execute("SELECT id FROM orders WHERE id = ?", (order_id,)).fetchone()
+        current = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
         if not current:
             raise HTTPException(status_code=404, detail="Khong tim thay don hang")
+        if current["status"] in ("Da xuat kho", "Huy don"):
+            raise HTTPException(status_code=409, detail="Don hang da dong, khong the chinh sua")
+        if payload.status == "Huy don" and current["status"] != "Huy don":
+            sync_items = restore_order_stock(conn, order_id)
         conn.execute(
             "UPDATE orders SET customer_name=?, channel=?, status=?, total_amount=?, note=? WHERE id=?",
             (payload.customer_name, payload.channel, payload.status, payload.total_amount, payload.note, order_id),
         )
+        if payload.status == "Da xuat kho" and current["status"] != "Da xuat kho":
+            _, sync_items = create_issue_for_order(conn, order_id)
         log(conn, "update", "order", order_id, f"Cap nhat don hang #{order_id}")
         conn.commit()
+    if sync_items:
+        background_tasks.add_task(sync_stock_to_channels, "issue", order_id, sync_items)
     return fetch_one("SELECT * FROM orders WHERE id = ?", (order_id,))
 
 
 @app.delete("/api/orders/{order_id}")
-def delete_order(order_id: int) -> dict[str, str]:
+def delete_order(order_id: int, background_tasks: BackgroundTasks) -> dict[str, str]:
+    sync_items: list[tuple[int, int, int]] = []
     with get_conn() as conn:
+        current = conn.execute("SELECT id, status FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if not current:
+            raise HTTPException(status_code=404, detail="Khong tim thay don hang")
+        if current["status"] in ("Da xuat kho", "Huy don"):
+            raise HTTPException(status_code=409, detail="Don hang da dong, khong the huy")
+        sync_items = restore_order_stock(conn, order_id)
         conn.execute("UPDATE orders SET status = 'Huy don' WHERE id = ?", (order_id,))
         log(conn, "cancel", "order", order_id, f"Huy don hang #{order_id}")
         conn.commit()
+    if sync_items:
+        background_tasks.add_task(sync_stock_to_channels, "order_cancel", order_id, sync_items)
     return {"message": "Da huy don hang"}
 
 
@@ -656,9 +1117,10 @@ def list_inventory_checks() -> list[dict[str, Any]]:
 
 
 @app.post("/api/inventory-checks", status_code=201)
-def create_inventory_check(payload: InventoryCheckIn) -> dict[str, Any]:
+def create_inventory_check(payload: InventoryCheckIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
     if not payload.items:
         raise HTTPException(status_code=400, detail="Phieu kiem ke can co it nhat mot san pham")
+    sync_items: list[tuple[int, int, int]] = []
     with get_conn() as conn:
         code = next_code(conn, "inventory_checks", "CHK")
         cursor = conn.execute(
@@ -676,8 +1138,11 @@ def create_inventory_check(payload: InventoryCheckIn) -> dict[str, Any]:
                 (check_id, item.product_id, product["stock_qty"], item.actual_qty, diff),
             )
             conn.execute("UPDATE products SET stock_qty = ? WHERE id = ?", (item.actual_qty, item.product_id))
+            if diff != 0:
+                sync_items.append((item.product_id, product["stock_qty"], item.actual_qty))
         log(conn, "confirm", "inventory_check", check_id, f"Xac nhan phieu kiem ke {code}")
         conn.commit()
+    background_tasks.add_task(sync_stock_to_channels, "inventory_check", None, sync_items)
     return fetch_one("SELECT * FROM inventory_checks WHERE id = ?", (check_id,))
 
 

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TikTok Shop Demo - Công ty ABC</title>
+<style>
+  :root{--primary:#fe2c55;--cyan:#25f4ee;--ink:#0f172a;--muted:#667085;--line:#e5e7eb;--bg:#f5f7fb;--card:#fff}
+  *{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink)}
+  header{position:sticky;top:0;z-index:10;background:#050505;color:#fff;border-bottom:1px solid rgba(255,255,255,.12)}
+  .top{width:min(100%,1280px);margin:auto;padding:14px 20px;display:grid;grid-template-columns:190px minmax(240px,1fr) 240px;gap:16px;align-items:center}
+  .brand{display:flex;align-items:center;gap:10px;min-width:0}.logo{display:grid;width:38px;height:38px;place-items:center;border-radius:10px;background:linear-gradient(135deg,var(--cyan),var(--primary));font-weight:1000}.brand b,.account b{display:block;white-space:nowrap}.brand span,.account span{display:block;color:#cbd5e1;font-size:12px}
+  .search{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 12px;border-radius:999px;background:#fff;color:#111827;min-width:0}.search input{width:100%;min-width:0;border:0;outline:0;font:inherit}
+  .account{display:flex;gap:10px;align-items:center;justify-content:flex-end;font-size:13px;min-width:0}.avatar{display:grid;width:34px;height:34px;place-items:center;border-radius:999px;background:#fff;color:#050505;font-weight:900;flex:none}
+  main{width:min(100%,1280px);margin:auto;padding:22px 20px 34px}.page-tabs{display:flex;gap:10px;margin-bottom:18px}.tab-btn{border:1px solid var(--line);background:#fff;color:#111827}.tab-btn.active{border-color:transparent;background:#050505;color:#fff}.view-section[hidden]{display:none}.hero{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:stretch;margin-bottom:22px}
+  .hero-main{min-height:220px;border-radius:18px;padding:28px;background:linear-gradient(135deg,#050505 0%,#171717 58%,#fe2c55 120%);color:#fff;display:grid;align-content:end;overflow:hidden;position:relative}.hero-main:after{content:"";position:absolute;right:26px;top:24px;width:160px;height:160px;border-radius:50%;border:28px solid rgba(37,244,238,.22)}
+  h1{margin:0;font-size:34px;line-height:1.12;letter-spacing:0}.hero-main p{margin:8px 0 0;color:#e5e7eb;max-width:720px}.panel{border:1px solid var(--line);border-radius:16px;background:var(--card);box-shadow:0 18px 50px rgba(15,23,42,.08)}
+  .cart{padding:16px;display:grid;gap:12px;align-content:start}.cart h2,.section-head h2{margin:0;font-size:18px}.cart-list{display:grid;gap:8px;max-height:170px;overflow:auto}.cart-row{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;background:#f8fafc}.cart-row b{font-size:13px}.cart-row span{display:block;color:var(--muted);font-size:12px}.cart-row button{width:30px;height:30px;border:0;border-radius:8px;background:#fee2e2;color:#991b1b;font-weight:900}
+  .cart-total{display:flex;justify-content:space-between;gap:12px;font-weight:900}.customer{display:grid;gap:6px}.customer span{font-size:12px;font-weight:800;color:#475467}.customer input{min-height:38px;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  button{font:inherit;cursor:pointer}.primary,.secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;border-radius:12px;padding:9px 13px;font-weight:900}.primary{border:0;background:var(--primary);color:#fff}.secondary{border:1px solid var(--line);background:#fff;color:#111827}.primary:disabled,.secondary:disabled{opacity:.5;cursor:not-allowed}
+  .tracking{padding:16px;margin-bottom:22px;display:grid;gap:12px}.track-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.tracking h2{margin:0;font-size:18px}.order-tabs{display:flex;gap:8px;flex-wrap:wrap}.order-tab{min-height:36px;padding:7px 11px;border:1px solid var(--line);border-radius:999px;background:#fff;color:#111827;font-weight:900}.order-tab.active{border-color:transparent;background:var(--primary);color:#fff}.orders{display:grid;gap:10px}.order{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}.order b{display:block}.order span{display:block;color:var(--muted);font-size:13px;margin-top:3px}.order-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.order-actions .secondary{min-height:34px;padding:6px 10px;border-radius:10px}.pill{display:inline-flex;width:max-content;padding:5px 10px;border-radius:999px;font-size:12px;font-weight:900;background:#fef3c7;color:#92400e}.pill.shipped{background:#dcfce7;color:#166534}.pill.cancelled{background:#fee2e2;color:#991b1b}
+  .section-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:8px 0 14px}.status{color:var(--muted);font-size:13px}.status.err{color:#b91c1c}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}
+  .card{min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 14px 38px rgba(15,23,42,.07)}.thumb{display:block;width:100%;height:210px;object-fit:cover;background:linear-gradient(135deg,#111827,#334155)}.body{display:grid;gap:10px;padding:14px}.meta{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}.name{min-height:44px;font-weight:900;line-height:1.25}.price{color:var(--primary);font-weight:1000;font-size:18px}.stock{font-size:13px;color:var(--muted)}.stock.low{color:#b91c1c;font-weight:900}.tag{display:inline-flex;width:max-content;max-width:100%;padding:4px 9px;border-radius:999px;background:#dcfce7;color:#166534;font-size:12px;font-weight:900}.tag.off{background:#fee2e2;color:#991b1b}.tag.out{background:#fef3c7;color:#92400e}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.qty{display:flex;align-items:center;gap:8px}.qty input{width:72px;min-height:36px;border:1px solid var(--line);border-radius:10px;padding:6px 8px}.msg{min-height:18px;font-size:13px}.msg.ok{color:#166534}.msg.err{color:#b91c1c}
+  .empty{padding:16px;border:1px dashed var(--line);border-radius:12px;color:var(--muted);text-align:center}
+  @media (max-width:980px){.top{grid-template-columns:1fr}.account{justify-content:flex-start}.hero{grid-template-columns:1fr}h1{font-size:28px}}
+  @media (max-width:560px){main,.top{padding-left:12px;padding-right:12px}.grid{grid-template-columns:1fr}.actions,.order{grid-template-columns:1fr}.thumb{height:220px}}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <div class="brand"><div class="logo">TT</div><div><b>TikTok Shop</b><span>Seller: Công ty ABC</span></div></div>
+    <label class="search">🔎<input id="search" placeholder="Tìm son, kem chống nắng, SKU..." /></label>
+    <div class="account"><div class="avatar">ABC</div><div><b>Tài khoản công ty ABC</b><span>Gian hàng kho test</span></div></div>
+  </div>
+</header>
+<main>
+  <div class="page-tabs">
+    <button class="secondary tab-btn active" id="shopTab">Mua hàng</button>
+    <button class="secondary tab-btn" id="ordersTab">Theo dõi đơn hàng</button>
+  </div>
+  <section class="view-section" id="shopView">
+    <section class="hero">
+      <div class="hero-main">
+        <h1>Gian hàng TikTok Shop của công ty ABC</h1>
+        <p>Khách tìm sản phẩm, bỏ giỏ hàng hoặc mua ngay. Khi thanh toán, hệ thống trừ tồn khả dụng ngay và tạo đơn chờ xử lý; phiếu xuất chỉ được ghi nhận khi kho xác nhận đã xuất.</p>
+      </div>
+      <aside class="panel cart">
+        <h2>Giỏ hàng</h2>
+        <div class="cart-list" id="cartList"></div>
+        <div class="cart-total"><span>Tổng tạm tính</span><b id="cartTotal">0 đ</b></div>
+        <label class="customer"><span>Người mua</span><input id="customerName" value="Nguyễn Demo" /></label>
+        <button class="primary" id="checkoutBtn">Thanh toán giỏ hàng</button>
+        <div class="msg" id="cartMsg"></div>
+      </aside>
+    </section>
+    <div class="section-head">
+      <div><h2>Sản phẩm đang bán</h2><div class="status" id="status">Đang tải sản phẩm từ kho công ty ABC...</div></div>
+      <button class="secondary" id="refreshBtn">Làm mới tồn kho</button>
+    </div>
+    <div class="grid" id="grid"></div>
+  </section>
+  <section class="panel tracking view-section" id="trackingView" hidden>
+    <div class="track-head">
+      <div><h2>Theo dõi đơn hàng</h2><div class="status" id="orderStatus">Đơn hàng của người mua sẽ cập nhật theo trạng thái bên kho ABC.</div></div>
+      <button class="secondary" id="refreshOrdersBtn">Làm mới đơn</button>
+    </div>
+    <div class="order-tabs">
+      <button class="order-tab active" data-order-filter="active">Đang xử lý</button>
+      <button class="order-tab" data-order-filter="done">Đã xử lý</button>
+      <button class="order-tab" data-order-filter="cancelled">Đã hủy</button>
+    </div>
+    <div class="orders" id="orders"></div>
+  </section>
+</main>
+<script>
+const grid = document.getElementById("grid");
+const statusEl = document.getElementById("status");
+const searchEl = document.getElementById("search");
+const cartList = document.getElementById("cartList");
+const cartTotal = document.getElementById("cartTotal");
+const cartMsg = document.getElementById("cartMsg");
+const checkoutBtn = document.getElementById("checkoutBtn");
+const customerName = document.getElementById("customerName");
+const orderStatus = document.getElementById("orderStatus");
+const ordersEl = document.getElementById("orders");
+const shopTab = document.getElementById("shopTab");
+const ordersTab = document.getElementById("ordersTab");
+const shopView = document.getElementById("shopView");
+const trackingView = document.getElementById("trackingView");
+let listings = [];
+let orders = [];
+let cart = [];
+let orderFilter = "active";
+
+const money = n => Number(n || 0).toLocaleString("vi-VN") + " đ";
+const fallbackImage = "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=700&q=80";
+const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;" }[c]));
+const orderLabel = status => status === "Da xuat kho" ? "Kiện hàng đã được xuất đi" : status === "Huy don" ? "Đã hủy đơn" : "Đơn hàng đang chờ kho xử lý";
+const orderClass = status => status === "Da xuat kho" ? "shipped" : status === "Huy don" ? "cancelled" : "";
+const orderMatches = order => orderFilter === "done" ? order.status === "Da xuat kho" : orderFilter === "cancelled" ? order.status === "Huy don" : !["Da xuat kho", "Huy don"].includes(order.status);
+const visibleItems = () => {
+  const q = searchEl.value.trim().toLowerCase();
+  return listings.filter(item => (item.name + item.sku + (item.category || "")).toLowerCase().includes(q));
+};
+
+function renderCart() {
+  cartList.innerHTML = "";
+  if (!cart.length) cartList.innerHTML = '<div class="empty">Chưa có sản phẩm trong giỏ</div>';
+  cart.forEach((line, index) => {
+    const row = document.createElement("div");
+    row.className = "cart-row";
+    row.innerHTML = `<div><b>${escapeHtml(line.name)}</b><span>${escapeHtml(line.sku)} x${line.quantity} - ${money(line.price * line.quantity)}</span></div><button title="Xóa">×</button>`;
+    row.querySelector("button").addEventListener("click", () => { cart.splice(index, 1); renderCart(); });
+    cartList.appendChild(row);
+  });
+  cartTotal.textContent = money(cart.reduce((sum, line) => sum + line.price * line.quantity, 0));
+  checkoutBtn.disabled = cart.length === 0;
+}
+
+function renderOrders() {
+  ordersEl.innerHTML = "";
+  const rows = orders.filter(orderMatches);
+  if (!rows.length) {
+    const emptyText = orderFilter === "done" ? "Chưa có đơn hàng đã xử lý" : orderFilter === "cancelled" ? "Chưa có đơn hàng đã hủy" : "Chưa có đơn hàng đang xử lý";
+    ordersEl.innerHTML = `<div class="empty">${emptyText}</div>`;
+    return;
+  }
+  rows.forEach(order => {
+    const row = document.createElement("div");
+    row.className = "order";
+    const canCancel = order.status !== "Da xuat kho" && order.status !== "Huy don";
+    row.innerHTML = `<div><b>${escapeHtml(order.code)} - ${escapeHtml(order.items_summary || "Đơn TikTok Shop")}</b><span>${escapeHtml(order.order_date)} · ${money(order.total_amount)}</span></div><div class="order-actions"><span class="pill ${orderClass(order.status)}">${orderLabel(order.status)}</span>${canCancel ? `<button class="secondary" data-cancel="${order.id}">Hủy đơn</button>` : ""}</div>`;
+    row.querySelector("[data-cancel]")?.addEventListener("click", () => cancelOrder(order.id));
+    ordersEl.appendChild(row);
+  });
+}
+
+function setMainTab(tab) {
+  const tracking = tab === "orders";
+  shopView.hidden = tracking;
+  trackingView.hidden = !tracking;
+  shopTab.classList.toggle("active", !tracking);
+  ordersTab.classList.toggle("active", tracking);
+  if (tracking) loadOrders();
+}
+
+function setOrderFilter(next) {
+  orderFilter = next;
+  document.querySelectorAll("[data-order-filter]").forEach(btn => btn.classList.toggle("active", btn.dataset.orderFilter === next));
+  renderOrders();
+}
+
+function render() {
+  grid.innerHTML = "";
+  const rows = visibleItems();
+  if (!rows.length) {
+    grid.innerHTML = '<div class="empty">Không tìm thấy sản phẩm phù hợp</div>';
+    return;
+  }
+  rows.forEach(item => {
+    const card = document.createElement("article");
+    card.className = "card";
+    const inactive = item.status && item.status !== "Dang ban";
+    const soldOut = item.stock <= 0;
+    const disabled = inactive || soldOut;
+    const tag = inactive ? "Ngừng kinh doanh" : soldOut ? "Hết hàng" : "Đang bán";
+    const tagClass = inactive ? "off" : soldOut ? "out" : "";
+    card.innerHTML = `
+      <img class="thumb" src="${escapeHtml(item.image_url || fallbackImage)}" alt="${escapeHtml(item.name)}" onerror="this.onerror=null;this.src='${fallbackImage}'">
+      <div class="body">
+        <div class="meta"><span>${escapeHtml(item.category || "TikTok Shop")}</span><span>${escapeHtml(item.sku)}</span></div>
+        <div class="name">${escapeHtml(item.name)}</div>
+        <span class="tag ${tagClass}">${tag}</span>
+        <div class="price">${money(item.price)}</div>
+        <div class="stock ${soldOut ? "low" : ""}">Tồn khả dụng từ kho ABC: <b>${item.stock}</b></div>
+        <label class="qty">Số lượng <input data-role="qty" type="number" min="1" max="${Math.max(1, item.stock)}" value="1"></label>
+        <div class="actions">
+          <button class="secondary" data-role="cart" ${disabled ? "disabled" : ""}>Thêm giỏ</button>
+          <button class="primary" data-role="buy" ${disabled ? "disabled" : ""}>Mua ngay</button>
+        </div>
+        <div class="msg" data-role="msg"></div>
+      </div>
+    `;
+    card.querySelector('[data-role="cart"]').addEventListener("click", () => addToCart(item, card));
+    card.querySelector('[data-role="buy"]').addEventListener("click", () => buyNow(item, card));
+    grid.appendChild(card);
+  });
+}
+
+function qtyFrom(card) { return Math.max(1, Number(card.querySelector('[data-role="qty"]').value || 1)); }
+function addToCart(item, card) {
+  const quantity = qtyFrom(card);
+  const existing = cart.find(line => line.sku === item.sku);
+  if (existing) existing.quantity += quantity;
+  else cart.push({ sku: item.sku, name: item.name, price: item.price, quantity });
+  const msg = card.querySelector('[data-role="msg"]');
+  msg.textContent = "Đã thêm vào giỏ. Đơn chưa tạo cho tới khi thanh toán.";
+  msg.className = "msg ok";
+  renderCart();
+}
+async function placeOrder(sku, quantity, msg) {
+  msg.textContent = "Đang gửi đơn TikTok Shop về hệ thống kho ABC...";
+  msg.className = "msg";
+  const res = await fetch(`/api/listings/${sku}/buy`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ quantity, customer_name: customerName.value || "Khách TikTok Shop", channel_code: "tiktok" })});
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Đặt hàng thất bại");
+  return data;
+}
+async function buyNow(item, card) {
+  const msg = card.querySelector('[data-role="msg"]');
+  try {
+    const data = await placeOrder(item.sku, qtyFrom(card), msg);
+    msg.textContent = `Đã tạo đơn ${data.order.code}. Tồn khả dụng đã trừ, đơn đang chờ kho xử lý.`;
+    msg.className = "msg ok";
+    await loadListings(true);
+    await loadOrders();
+    setMainTab("orders");
+    setOrderFilter("active");
+  } catch (e) { msg.textContent = e.message; msg.className = "msg err"; }
+}
+async function checkout() {
+  cartMsg.textContent = "";
+  try {
+    for (const line of [...cart]) await placeOrder(line.sku, line.quantity, cartMsg);
+    cart = [];
+    renderCart();
+    cartMsg.textContent = "Đã tạo đơn chờ xử lý trong hệ thống kho ABC.";
+    cartMsg.className = "msg ok";
+    await loadListings(true);
+    await loadOrders();
+    setMainTab("orders");
+    setOrderFilter("active");
+  } catch (e) { cartMsg.textContent = e.message; cartMsg.className = "msg err"; await loadListings(true); await loadOrders(); }
+}
+async function loadOrders() {
+  try {
+    const name = encodeURIComponent(customerName.value || "");
+    const res = await fetch(`/api/orders?customer_name=${name}`);
+    orders = await res.json();
+    orderStatus.textContent = "Trạng thái đơn được lấy trực tiếp từ hệ thống kho ABC.";
+    orderStatus.classList.remove("err");
+    renderOrders();
+  } catch (e) { orderStatus.textContent = "Không tải được trạng thái đơn hàng."; orderStatus.classList.add("err"); }
+}
+async function cancelOrder(id) {
+  orderStatus.textContent = "Đang gửi yêu cầu hủy đơn...";
+  try {
+    const res = await fetch(`/api/orders/${id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || "Không thể hủy đơn");
+    await loadOrders();
+    await loadListings(true);
+  } catch (e) {
+    orderStatus.textContent = e.message;
+    orderStatus.classList.add("err");
+  }
+}
+async function loadListings(silent) {
+  try {
+    const res = await fetch("/api/listings");
+    listings = await res.json();
+    if (!silent) statusEl.textContent = "Dữ liệu lấy từ hệ thống kho công ty ABC";
+    statusEl.classList.remove("err");
+    render();
+  } catch (e) { statusEl.textContent = "Không tải được danh sách sản phẩm."; statusEl.classList.add("err"); }
+}
+searchEl.addEventListener("input", render);
+customerName.addEventListener("change", loadOrders);
+checkoutBtn.addEventListener("click", checkout);
+shopTab.addEventListener("click", () => setMainTab("shop"));
+ordersTab.addEventListener("click", () => setMainTab("orders"));
+document.querySelectorAll("[data-order-filter]").forEach(btn => btn.addEventListener("click", () => setOrderFilter(btn.dataset.orderFilter)));
+document.getElementById("refreshBtn").addEventListener("click", () => loadListings(false));
+document.getElementById("refreshOrdersBtn").addEventListener("click", loadOrders);
+renderCart();
+loadListings();
+loadOrders();
+setInterval(() => { loadListings(true); loadOrders(); }, 3000);
+</script>
+</body>
+</html>

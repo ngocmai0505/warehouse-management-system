@@ -1,17 +1,27 @@
 services:
   warehouse-management:
     build: .
-    image: warehouse-management-system:v1.0
+    image: warehouse-management-system:v1.3
     container_name: warehouse-management-system
     ports:
       - "8000:8000"
     volumes:
-      - warehouse-data:/app/data
+      - ./data:/app/data
     environment:
       DATA_DIR: /app/data
       STATIC_DIR: /app/static
       CORS_ORIGINS: "*"
+      MARKETPLACE_BASE_URL: "http://marketplace:9000"
+    depends_on:
+      - marketplace
     restart: unless-stopped
 
-volumes:
-  warehouse-data:
+  marketplace:
+    build: ./marketplace
+    image: tiktokshop_demo:v1.3
+    container_name: tiktokshop_demo
+    ports:
+      - "9000:9000"
+    environment:
+      WAREHOUSE_BASE_URL: "http://warehouse-management:8000"
+    restart: unless-stopped
