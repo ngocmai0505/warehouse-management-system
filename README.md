@@ -1,182 +1,84 @@
-# Hệ Thống Quản Lý Kho Hàng
+# Warehouse Management System + TikTok Shop Demo
 
-## 1. Giới Thiệu Dự Án
+Hệ thống quản lý kho hàng dành cho demo bán hàng thương mại điện tử. Ứng dụng gồm 2 service độc lập chạy bằng Docker Compose:
 
-**Hệ Thống Quản Lý Kho Hàng** là ứng dụng web hỗ trợ quản lý kho cho mô hình thương mại điện tử. Hệ thống giúp doanh nghiệp theo dõi sản phẩm, lô hàng, hạn sử dụng, tồn kho, nhà cung cấp, đơn hàng, phiếu nhập kho, phiếu xuất kho, kiểm kê và báo cáo doanh thu/vận hành kho.
+- `warehouse-management`: web quản lý kho nội bộ, chạy tại `http://localhost:8000`.
+- `marketplace`: web sàn demo theo phong cách TikTok Shop, chạy tại `http://localhost:9000`.
 
-Ứng dụng được xây dựng theo mô hình full-stack, gồm giao diện web React và backend FastAPI. Dữ liệu được lưu trong SQLite và được đóng gói bằng Docker để dễ cài đặt, chạy thử nghiệm và triển khai trên nhiều môi trường khác nhau.
+Dữ liệu demo hiện tại dùng bộ sản phẩm **Bbia Official Store** từ file `product-list.csv`.
 
-## 2. Mục Tiêu Dự Án
+## Tính Năng Chính
 
-- Xây dựng một hệ thống quản lý kho hàng trực quan, dễ sử dụng cho doanh nghiệp vừa và nhỏ.
-- Hỗ trợ nghiệp vụ kho thương mại điện tử: nhập kho, xuất kho theo đơn hàng, quản lý lô hàng, hạn sử dụng và barcode/QR.
-- Giảm sai sót khi theo dõi tồn kho bằng cách tự động cộng/trừ tồn sau mỗi giao dịch kho.
-- Cung cấp báo cáo tổng quan về nhập kho, xuất kho, kiểm kê và doanh thu.
-- Phân quyền người dùng theo vai trò: quản trị viên, quản lý kho và nhân viên kho.
-- Đóng gói ứng dụng bằng Docker để đảm bảo chạy ổn định trên các máy khác nhau.
+### Web Quản Lý Kho
 
-## 3. Chức Năng Chính
+- Đăng nhập và phân quyền theo vai trò.
+- Quản lý sản phẩm: thêm, sửa, ngừng kinh doanh, ảnh sản phẩm, SKU, barcode, lô hàng, hạn sử dụng, vị trí kho.
+- Quản lý tồn kho:
+  - Xem tồn kho theo SKU/tên sản phẩm.
+  - Sửa trực tiếp số lượng tồn kho trong tab `Tồn kho`.
+  - Đồng bộ số tồn mới sang TikTok Shop demo realtime.
+  - Tự hiển thị trạng thái `An toàn`, `Sắp hết`, `Hết hàng`, `Ngừng kinh doanh`.
+- Quản lý đơn hàng:
+  - Đơn mới từ TikTok Shop được tạo ở trạng thái `Chờ xử lý`.
+  - Đơn đã `Đã xuất kho` hoặc `Hủy đơn` sẽ bị khóa chỉnh sửa.
+  - Khi hủy đơn trước khi xuất kho, tồn kho được cộng lại.
+- Nhập kho, xuất kho, kiểm kê.
+- Tạo phiếu xuất từ đơn hàng: khi chọn đơn, hệ thống tự lấy sản phẩm và số lượng theo đơn.
+- Lịch sử xuất kho chỉ ghi nhận khi đơn thật sự được xác nhận `Đã xuất kho`.
+- Realtime WebSocket cho đơn mới, cập nhật trạng thái đơn, đồng bộ tồn kho và log hoạt động.
+- Báo cáo tổng quan và xuất báo cáo CSV.
+- Quét/tìm sản phẩm bằng SKU hoặc barcode.
+- Giao diện hỗ trợ tiếng Việt có dấu và tiếng Anh.
 
-### 3.1 Đăng Nhập Và Phân Quyền
+### TikTok Shop Demo
 
-- Đăng nhập bằng tài khoản và mật khẩu.
-- Hỗ trợ 3 vai trò:
-  - Quản trị viên.
-  - Quản lý kho.
-  - Nhân viên kho.
-- Giao diện hiển thị chức năng theo quyền của từng vai trò.
-- Hỗ trợ chuyển đổi ngôn ngữ Việt/Anh.
+- Storefront demo cho **Bbia Official Store**.
+- Tìm kiếm sản phẩm.
+- Xem sản phẩm, ảnh, giá bán, số tồn khả dụng.
+- Thêm giỏ hàng, mua ngay, thanh toán giỏ hàng.
+- Chọn số lượng bằng nút `- / +` hoặc nhập trực tiếp.
+- Tự disable sản phẩm khi:
+  - Tồn kho bằng 0: hiển thị `Hết hàng`.
+  - Sản phẩm ngừng kinh doanh: hiển thị `Ngừng kinh doanh`.
+- Theo dõi đơn hàng trên sàn:
+  - Đơn đang chờ xử lý.
+  - Đơn đã xử lý/đã xuất kho.
+  - Đơn đã hủy.
+- Khách hàng có thể hủy đơn khi đơn chưa xuất kho; thao tác này đồng bộ về web quản lý kho và cộng tồn lại.
 
-### 3.2 Tổng Quan
+## Luồng Đồng Bộ Kho Và Sàn
 
-- Hiển thị tổng số sản phẩm đang hoạt động.
-- Hiển thị tổng tồn kho hiện tại.
-- Hiển thị tổng đơn hàng.
-- Hiển thị cảnh báo sản phẩm sắp hết hàng.
-- Hiển thị tổng nhập kho và xuất kho.
+### 1. Khách Mua Hàng Trên TikTok Shop Demo
 
-### 3.3 Quản Lý Sản Phẩm
+1. Khách chọn sản phẩm và số lượng.
+2. TikTok Shop demo gọi API về `warehouse-management`.
+3. Web quản lý kho tạo đơn hàng mới trạng thái `Chờ xử lý`.
+4. Tồn kho sản phẩm bị trừ ngay để tránh bán vượt tồn.
+5. Tab `Đơn hàng`, `Tồn kho`, `Sản phẩm` và dữ liệu sàn được cập nhật realtime.
 
-- Thêm, sửa và ngừng kinh doanh sản phẩm.
-- Quản lý các thông tin:
-  - SKU.
-  - Tên sản phẩm.
-  - Danh mục.
-  - Thương hiệu.
-  - Đơn vị tính.
-  - Giá nhập.
-  - Giá bán.
-  - Barcode/QR.
-  - Lô hàng.
-  - Hạn sử dụng.
-  - Vị trí lưu kho.
-  - Tồn kho tối thiểu.
-  - Hình ảnh sản phẩm.
-- Tìm kiếm sản phẩm theo SKU, tên, danh mục, thương hiệu, barcode và lô hàng.
+### 2. Công Ty Xác Nhận Xuất Kho
 
-### 3.4 Quản Lý Nhà Cung Cấp
+1. Nhân viên vào tab `Xuất kho`.
+2. Chọn đơn hàng cần xử lý.
+3. Hệ thống tự điền sản phẩm và số lượng theo đơn.
+4. Khi lưu phiếu xuất, đơn chuyển sang `Đã xuất kho`.
+5. Lịch sử xuất kho hiển thị phiếu đã xác nhận.
+6. Trạng thái đơn bên TikTok Shop demo hiển thị kiện hàng đã được xuất đi.
 
-- Thêm, sửa và ngừng hợp tác nhà cung cấp.
-- Quản lý thông tin liên hệ, địa chỉ, email, số điện thoại và ghi chú.
-- Tìm kiếm nhà cung cấp.
+### 3. Hủy Đơn
 
-### 3.5 Quản Lý Đơn Hàng
+- Nếu khách hoặc công ty hủy đơn khi đơn còn `Chờ xử lý`, hệ thống:
+  - Chuyển đơn sang `Hủy đơn`.
+  - Cộng lại tồn kho đã trừ.
+  - Đồng bộ realtime sang cả web quản lý và TikTok Shop demo.
+- Đơn đã `Đã xuất kho` hoặc `Hủy đơn` không được chỉnh sửa/hủy lại.
 
-- Quản trị viên có thể thêm, sửa, xóa đơn hàng.
-- Quản lý kho có thể xem và tìm kiếm đơn hàng để phục vụ việc xuất kho.
-- Đơn hàng có các thông tin:
-  - Mã đơn.
-  - Ngày đặt hàng.
-  - Tên khách hàng.
-  - Kênh bán hàng.
-  - Sản phẩm và số lượng mua.
-  - Giá trị đơn hàng.
-  - Trạng thái đơn hàng.
-- Hỗ trợ tìm kiếm đơn hàng theo mã đơn, khách hàng, sản phẩm, ngày, kênh bán hàng và trạng thái.
+### 4. Sửa Tồn Kho Thủ Công
 
-### 3.6 Nhập Kho
+- Khi sửa số lượng trong tab `Tồn kho`, backend cập nhật trực tiếp `products.stock_qty`.
+- Sau đó hệ thống gọi API sang TikTok Shop demo để cập nhật số tồn hiển thị trên sàn.
 
-- Tạo phiếu nhập kho theo từng sản phẩm.
-- Gắn phiếu nhập với nhà cung cấp.
-- Khi xác nhận phiếu nhập, hệ thống tự động cộng số lượng vào tồn kho.
-- Phiếu nhập hiển thị tên sản phẩm, mã lô hàng và số lượng nhập.
-- Ngày nhập kho được điều chỉnh phù hợp với tháng của lô hàng.
-- Hỗ trợ tìm kiếm lịch sử nhập kho.
-
-### 3.7 Xuất Kho
-
-- Tạo phiếu xuất kho theo đơn hàng.
-- Kiểm tra số lượng tồn trước khi xuất kho.
-- Nếu tồn kho không đủ, hệ thống hiển thị lỗi và không cho xuất.
-- Khi xác nhận phiếu xuất, hệ thống tự động trừ số lượng kho.
-- Cập nhật trạng thái đơn hàng thành đã xuất kho.
-- Hỗ trợ tìm kiếm phiếu xuất theo mã phiếu, ngày xuất, mã đơn, sản phẩm và trạng thái.
-
-### 3.8 Tồn Kho
-
-- Theo dõi tồn kho hiện tại của từng sản phẩm.
-- Hiển thị vị trí lưu kho, lô hàng và hạn sử dụng.
-- Cảnh báo sản phẩm hết hàng hoặc sắp hết hàng dựa trên tồn kho tối thiểu.
-- Tồn kho là dữ liệu phát sinh từ sản phẩm, phiếu nhập, phiếu xuất và kiểm kê.
-
-### 3.9 Kiểm Kê
-
-- Tạo phiếu kiểm kê cho sản phẩm.
-- Lấy số lượng hệ thống tại thời điểm kiểm kê.
-- Nhập số lượng thực tế.
-- Tính chênh lệch theo công thức:
-
-```text
-Chênh lệch = Số lượng hệ thống - Số lượng thực tế
-```
-
-- Nếu số lượng hệ thống thấp hơn số lượng thực tế thì chênh lệch âm.
-- Nếu số lượng hệ thống cao hơn số lượng thực tế thì chênh lệch dương.
-- Sau khi kiểm kê, tồn kho được cập nhật theo số lượng thực tế.
-
-### 3.10 Báo Cáo
-
-- Báo cáo nhập kho.
-- Báo cáo xuất kho.
-- Báo cáo kiểm kê.
-- Báo cáo doanh thu theo ngày.
-- Biểu đồ tổng quan nhập/xuất/kiểm kê.
-- Xuất báo cáo dạng CSV.
-
-### 3.11 Barcode/QR
-
-- Tìm kiếm sản phẩm theo SKU hoặc barcode.
-- Hỗ trợ mở camera để quét barcode/QR trên thiết bị có camera.
-- Hiển thị thông tin sản phẩm sau khi quét:
-  - Tên sản phẩm.
-  - SKU.
-  - Barcode.
-  - Lô hàng.
-  - Hạn sử dụng.
-  - Tồn kho.
-  - Vị trí lưu kho.
-
-### 3.12 Hoạt Động Gần Đây
-
-- Ghi nhận các thao tác quan trọng trong hệ thống.
-- Hiển thị thông báo hoạt động chưa đọc.
-- Cho phép đánh dấu đã đọc từng hoạt động hoặc tất cả hoạt động.
-- Quản trị viên có thể xóa lịch sử hoạt động.
-
-### 3.13 Đồng Bộ Tồn Kho Lên Sàn TMĐT (Realtime, 2 hệ thống độc lập)
-
-Tính năng này chạy trên **2 service tách biệt, giao tiếp qua mạng thật (HTTP)** để mô phỏng đúng quan hệ seller ↔ sàn TMĐT, không chỉ là code tự gọi trong cùng process:
-
-- **`warehouse-management`** (port 8000): hệ thống quản lý kho nội bộ của người bán — chính là ứng dụng chính mô tả ở các mục trên.
-- **`marketplace`** (port 9000): service demo độc lập đóng vai TikTok Shop của công ty ABC, có storefront cho khách tìm sản phẩm, bỏ giỏ hàng hoặc mua hàng tại `http://localhost:9000`.
-
-Luồng đồng bộ 2 chiều:
-
-- **Sàn → Kho**: khi khách bấm "Mua ngay" hoặc thanh toán giỏ hàng trên storefront (`marketplace`), service này gọi webhook `POST /api/webhooks/orders` sang `warehouse-management` để tạo đơn hàng mới, tạo phiếu xuất kho tự động và trừ tồn kho công ty ABC ngay lập tức — mô phỏng đúng cách TikTok Shop đẩy đơn về hệ thống seller.
-- **Kho → Sàn**: sau mỗi lần xác nhận phiếu xuất kho, phiếu nhập kho hoặc phiếu kiểm kê, `warehouse-management` tự động gọi `PUT` sang `marketplace` để cập nhật số lượng tồn mới, tránh bán vượt tồn kho (overselling).
-- Cả 2 chiều gọi API đều chạy nền/bất đồng bộ nên không chặn thao tác của người dùng đang chờ phản hồi.
-- Kết quả đồng bộ (thành công/thất bại) được đẩy realtime tới mọi tab đang mở của `warehouse-management` qua WebSocket (`/ws/realtime`) — đơn hàng mới, log đồng bộ tồn kho đều hiện ngay không cần F5.
-- Cho phép đồng bộ lại thủ công (Retry) đối với các lượt đồng bộ thất bại khi service sàn không phản hồi.
-- Đổi từ demo sang tích hợp thật: chỉ cần cập nhật `sales_channels.api_base_url` sang endpoint thật của TikTok Shop Partner Center (kèm auth header) là chuyển sang đồng bộ thật, không cần sửa code.
-
-## 4. Phân Quyền Người Dùng
-
-| Chức năng | Quản trị viên | Quản lý kho | Nhân viên kho |
-| --- | --- | --- | --- |
-| Tổng quan | Xem | Xem | Xem |
-| Sản phẩm | Xem, thêm, sửa, ngừng kinh doanh | Xem, thêm, sửa, ngừng kinh doanh | Không xem |
-| Nhà cung cấp | Xem, thêm, sửa, ngừng hợp tác | Xem, thêm, sửa, ngừng hợp tác | Không xem |
-| Đơn hàng | Xem, tìm kiếm, thêm, sửa, xóa | Xem, tìm kiếm | Không xem |
-| Nhập kho | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu |
-| Xuất kho | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu | Xem, tìm kiếm, tạo phiếu |
-| Tồn kho | Xem | Xem | Xem |
-| Kiểm kê | Xem, tạo kiểm kê | Xem, tạo kiểm kê | Không xem |
-| Đồng bộ sàn TMĐT | Xem, đồng bộ lại | Xem, đồng bộ lại | Xem |
-| Báo cáo | Xem, xuất báo cáo | Xem, xuất báo cáo | Không xem |
-| Barcode/QR | Quét/tìm sản phẩm | Quét/tìm sản phẩm | Quét/tìm sản phẩm |
-| Hoạt động | Xem, đánh dấu đọc, xóa lịch sử | Xem, đánh dấu đọc | Xem, đánh dấu đọc |
-
-## 5. Tài Khoản Demo
+## Tài Khoản Demo
 
 | Vai trò | Tài khoản | Mật khẩu |
 | --- | --- | --- |
@@ -184,102 +86,50 @@ Luồng đồng bộ 2 chiều:
 | Quản lý kho | `warehouse` | `warehouse123` |
 | Nhân viên kho | `staff` | `staff123` |
 
-## 6. Công Nghệ Sử Dụng
+## Phân Quyền Tổng Quan
 
-### 6.1 Frontend
+| Chức năng | Admin | Warehouse | Staff |
+| --- | --- | --- | --- |
+| Tổng quan | Xem | Xem | Xem |
+| Sản phẩm | Xem, thêm, sửa, ngừng kinh doanh | Xem, thêm, sửa, ngừng kinh doanh | Không xem |
+| Nhà cung cấp | Xem, thêm, sửa, ngừng hợp tác | Xem, thêm, sửa, ngừng hợp tác | Không xem |
+| Đơn hàng | Xem, thêm, sửa, hủy | Xem | Không xem |
+| Nhập kho | Xem, tạo phiếu | Xem, tạo phiếu | Xem, tạo phiếu |
+| Xuất kho | Xem, tạo phiếu | Xem, tạo phiếu | Xem, tạo phiếu |
+| Tồn kho | Xem, sửa số lượng | Xem, sửa số lượng | Xem |
+| Kiểm kê | Xem, tạo phiếu | Xem, tạo phiếu | Không xem |
+| Đồng bộ sàn | Xem, retry | Xem, retry | Xem |
+| Báo cáo | Xem, xuất CSV | Xem, xuất CSV | Không xem |
+| Barcode/QR | Quét/tìm | Quét/tìm | Quét/tìm |
+| Hoạt động | Xem, đánh dấu đọc, xóa | Xem, đánh dấu đọc | Xem, đánh dấu đọc |
 
-- **React**: xây dựng giao diện người dùng theo component.
-- **TypeScript**: tăng tính an toàn kiểu dữ liệu, giúp mã nguồn dễ bảo trì hơn.
-- **Vite**: công cụ build frontend nhanh, phù hợp cho phát triển React.
-- **lucide-react**: thư viện icon giúp giao diện trực quan và đồng bộ.
-- **CSS responsive**: tối ưu hiển thị trên laptop và điện thoại.
+## Công Nghệ Sử Dụng
 
-### 6.2 Backend
+### Backend
 
-- **Python**: ngôn ngữ lập trình chính cho phần server.
-- **FastAPI**: xây dựng REST API nhanh, gọn, có sẵn OpenAPI docs.
-- **Uvicorn**: ASGI server dùng để chạy ứng dụng FastAPI.
-- **Pydantic**: kiểm tra và validate dữ liệu request.
-- **httpx**: gọi API đồng bộ tồn kho ra TikTok Shop demo.
-- **WebSocket (FastAPI)**: đẩy realtime kết quả đồng bộ tồn kho tới giao diện.
+- Python 3.12
+- FastAPI
+- Uvicorn
+- SQLite
+- Pydantic
+- httpx
+- WebSocket realtime
 
-### 6.3 Cơ Sở Dữ Liệu
+### Frontend
 
-- **SQLite**: cơ sở dữ liệu nhẹ, phù hợp cho demo, học tập và triển khai cục bộ.
-- Dữ liệu được lưu trong Docker volume tại `/app/data` để không bị mất khi container khởi động lại.
-- Khi cần mở rộng thành sản phẩm thực tế, có thể thay SQLite bằng PostgreSQL hoặc MySQL.
+- React
+- TypeScript
+- Vite
+- lucide-react
+- CSS responsive
 
-### 6.4 Triển Khai
+### Triển Khai
 
-- **Docker**: đóng gói frontend, backend và runtime vào một image.
-- **Docker Compose**: cấu hình build, run container, map port và volume dữ liệu.
+- Docker
+- Docker Compose
+- SQLite bind mount ra thư mục `./data`
 
-## 7. Mục Đích Sử Dụng Docker Trong Dự Án
-
-Docker được sử dụng trong dự án này nhằm:
-
-- **Đóng gói môi trường chạy ứng dụng**: tất cả thành phần cần thiết như Python, FastAPI, Node.js build frontend và static files được đóng gói trong image.
-- **Đảm bảo tính nhất quán giữa các máy**: ứng dụng chạy giống nhau trên máy lập trình, máy chấm điểm, máy demo hoặc server.
-- **Giảm lỗi cài đặt thủ công**: người dùng không cần tự cài Python, Node.js, npm package hay cấu hình môi trường phức tạp.
-- **Dễ khởi động ứng dụng**: chỉ cần sử dụng Docker Compose để build và run.
-- **Quản lý dữ liệu bằng volume**: database SQLite được lưu trong Docker volume `warehouse-data`, giúp dữ liệu vẫn còn sau khi container được recreate.
-- **Tách biệt ứng dụng khỏi hệ điều hành**: tránh xung đột phiên bản thư viện giữa các dự án khác nhau.
-- **Phù hợp demo và bảo vệ môi trường máy tính**: dễ chạy, dừng, xóa container mà không ảnh hưởng nhiều đến hệ thống chính.
-
-## 8. Kiến Trúc Docker Của Dự Án
-
-Dự án sử dụng Dockerfile multi-stage:
-
-1. **Stage frontend-builder**
-   - Sử dụng image `node:22-alpine`.
-   - Cài đặt package frontend.
-   - Build ứng dụng React/Vite thành static files.
-
-2. **Stage runtime**
-   - Sử dụng image `python:3.12-slim`.
-   - Cài đặt thư viện backend từ `backend/requirements.txt`.
-   - Copy source backend vào `/app/app`.
-   - Copy frontend đã build vào `/app/static`.
-   - Chạy FastAPI bằng Uvicorn tại port `8000`.
-
-Docker Compose cấu hình 2 service:
-
-- `warehouse-management`: image `warehouse-management-system:v1.2`, container `warehouse-management-system`, port `8000:8000`, volume `warehouse-data:/app/data`.
-- `marketplace`: image `warehouse-marketplace-demo:v1.2`, container `warehouse-marketplace-demo`, port `9000:9000` — service demo đóng vai sàn TMĐT, không cần volume (dữ liệu tồn kho hiển thị lấy trực tiếp từ `warehouse-management` lúc khởi động).
-- Restart policy: `unless-stopped` cho cả 2 service.
-
-## 9. Hướng Dẫn Chạy Dự Án
-
-### 9.1 Yêu Cầu
-
-- Đã cài Docker Desktop.
-- Docker Desktop đang chạy.
-
-### 9.2 Build Và Chạy Ứng Dụng
-
-```bash
-docker compose up -d --build
-```
-
-Sau khi chạy thành công:
-
-- Ứng dụng quản lý kho: http://localhost:8000
-- API docs: http://localhost:8000/docs
-- Storefront TikTok Shop demo của công ty ABC (để test giỏ hàng, mua hàng và xem đồng bộ tồn kho realtime): http://localhost:9000
-
-### 9.3 Dừng Ứng Dụng
-
-```bash
-docker compose down
-```
-
-### 9.4 Xem Log
-
-```bash
-docker compose logs -f
-```
-
-## 10. Cấu Trúc Thư Mục
+## Cấu Trúc Dự Án
 
 ```text
 warehouse-management-system/
@@ -298,58 +148,141 @@ warehouse-management-system/
 │   ├── app/
 │   │   ├── main.py
 │   │   └── storefront.html
-│   ├── requirements.txt
-│   └── Dockerfile
+│   ├── Dockerfile
+│   └── requirements.txt
+├── data/
+│   └── warehouse.db
 ├── docs/
-│   ├── requirements.md
-│   ├── system-design-diagrams.md
-│   ├── erd-diagram.png
-│   ├── usecase-admin.png
-│   ├── usecase-manager.png
-│   └── usecase-staff.png
+├── product-list.csv
 ├── Dockerfile
 ├── docker-compose.yml
-├── .dockerignore
 └── README.md
 ```
 
-## 11. Tài Liệu Thiết Kế
+## Dữ Liệu
 
-Tài liệu sơ đồ hệ thống nằm tại:
+Ứng dụng dùng SQLite. File database nằm trong:
 
 ```text
-docs/system-design-diagrams.md
+data/warehouse.db
 ```
 
-### 11.1 Sơ Đồ ERD
+Trong `docker-compose.yml`, thư mục này được mount ra ngoài container:
 
-Sơ đồ ERD dưới đây mô tả các bảng dữ liệu chính của hệ thống và mối quan hệ giữa sản phẩm, nhà cung cấp, đơn hàng, phiếu nhập kho, phiếu xuất kho, kiểm kê và nhật ký hoạt động.
+```yaml
+volumes:
+  - ./data:/app/data
+```
 
-![Sơ đồ ERD hệ thống quản lý kho hàng](docs/erd-diagram.png)
+Vì vậy khi container bị recreate, dữ liệu vẫn còn. Khi triển khai sang laptop khác, chỉ cần đem theo cả thư mục dự án, đặc biệt là:
 
-### 11.2 Sơ Đồ Use Case
+- `docker-compose.yml`
+- `product-list.csv`
+- thư mục `data/`
 
-Sơ đồ Use Case mô tả 13 chức năng chính của hệ thống, tách riêng theo từng vai trò người dùng để dễ đối chiếu với Ma trận phân quyền ở Mục 4. Các chức năng tô xám, nét đứt là chức năng vai trò đó không được sử dụng.
+Sau đó chạy `docker compose up -d`.
 
-**Quản trị viên** — toàn quyền trên 13/13 chức năng, bao gồm cả xem/tìm kiếm và thêm/sửa/xóa đơn hàng:
+### Seed Sản Phẩm BBIA
 
-![Sơ đồ Use Case - Quản trị viên](docs/usecase-admin.png)
+File `product-list.csv` chứa danh sách sản phẩm Bbia Official Store, bao gồm SKU, tên sản phẩm, danh mục, giá, ảnh và tồn kho.
 
-**Quản lý kho** — 12/13 chức năng, được xem và tìm kiếm đơn hàng nhưng không được thêm/sửa/xóa:
+Khi database trống, backend sẽ seed sản phẩm từ file này. Nếu `data/warehouse.db` đã tồn tại và có dữ liệu, hệ thống sẽ ưu tiên dữ liệu hiện có trong database.
 
-![Sơ đồ Use Case - Quản lý kho](docs/usecase-manager.png)
+Muốn làm mới dữ liệu demo hoàn toàn thì dừng container, xóa hoặc đổi tên `data/warehouse.db`, sau đó chạy lại Docker Compose để seed lại từ `product-list.csv`.
 
-**Nhân viên kho** — chỉ thao tác nghiệp vụ kho vận hằng ngày: đăng nhập, xem tổng quan, nhập kho, xuất kho, xem tồn kho, quét Barcode/QR và xem hoạt động (7/13 chức năng):
+## Docker Compose Hiện Tại
 
-![Sơ đồ Use Case - Nhân viên kho](docs/usecase-staff.png)
+`docker-compose.yml` đang chạy 2 service:
 
-File `docs/system-design-diagrams.md` bao gồm:
+| Service | Image | Container | Port |
+| --- | --- | --- | --- |
+| `warehouse-management` | `warehouse-management-system:v1.3` | `warehouse-management-system` | `8000:8000` |
+| `marketplace` | `tiktokshop_demo:v1.3` | `tiktokshop_demo` | `9000:9000` |
 
-- ERD.
-- Data Dictionary.
-- Use Case Diagram.
-- DFD mức 0 và mức 1.
-- Activity Diagram.
-- Kiến trúc hệ thống.
-- Component Diagram.
-- Ma trận phân quyền.
+Biến môi trường chính:
+
+| Service | Biến | Ý nghĩa |
+| --- | --- | --- |
+| `warehouse-management` | `DATA_DIR=/app/data` | Nơi lưu SQLite trong container |
+| `warehouse-management` | `STATIC_DIR=/app/static` | Nơi serve frontend React đã build |
+| `warehouse-management` | `MARKETPLACE_BASE_URL=http://marketplace:9000` | URL nội bộ để gọi TikTok Shop demo |
+| `marketplace` | `WAREHOUSE_BASE_URL=http://warehouse-management:8000` | URL nội bộ để gọi web quản lý kho |
+
+## Hướng Dẫn Chạy
+
+### Yêu Cầu
+
+- Docker Desktop đã được cài.
+- Docker Desktop đang chạy.
+
+### Build Và Chạy
+
+```bash
+docker compose up -d --build
+```
+
+Sau khi chạy:
+
+- Web quản lý kho: `http://localhost:8000`
+- API docs: `http://localhost:8000/docs`
+- TikTok Shop demo: `http://localhost:9000`
+
+### Dừng Ứng Dụng
+
+```bash
+docker compose down
+```
+
+### Xem Log
+
+```bash
+docker compose logs -f
+```
+
+### Build Lại Sau Khi Sửa Code
+
+```bash
+docker compose up -d --build
+```
+
+## Một Vài API Quan Trọng
+
+### Warehouse Management
+
+- `POST /api/auth/login`: đăng nhập.
+- `GET /api/products`: danh sách sản phẩm.
+- `PUT /api/products/{id}`: sửa thông tin sản phẩm.
+- `PUT /api/products/{id}/stock`: sửa trực tiếp số lượng tồn kho.
+- `DELETE /api/products/{id}`: ngừng kinh doanh sản phẩm.
+- `GET /api/orders`: danh sách đơn hàng.
+- `PUT /api/orders/{id}`: cập nhật đơn hàng.
+- `DELETE /api/orders/{id}`: hủy đơn hàng.
+- `POST /api/issues`: tạo phiếu xuất kho.
+- `GET /api/channels`: trạng thái kênh TikTok Shop.
+- `GET /api/channel-syncs`: lịch sử đồng bộ tồn kho.
+- `POST /api/webhooks/orders`: webhook nhận đơn từ TikTok Shop demo.
+- `GET /ws/realtime`: websocket realtime cho frontend.
+
+### TikTok Shop Demo
+
+- `GET /api/listings`: danh sách sản phẩm đang bán trên sàn.
+- `POST /api/listings/{sku}/buy`: mua sản phẩm.
+- `GET /api/orders`: theo dõi đơn hàng của khách.
+- `DELETE /api/orders/{id}`: khách hủy đơn.
+- `PUT /api/mock/{channel_code}/products/{sku}/stock`: endpoint mock nhận đồng bộ tồn kho từ warehouse.
+
+## Ghi Chú Demo
+
+- Đây là hệ thống demo cục bộ, mật khẩu demo đang lưu dạng đơn giản trong SQLite.
+- TikTok Shop demo là service mock để mô phỏng luồng seller/sàn, chưa phải tích hợp TikTok Shop Partner Center thật.
+- Nếu muốn tích hợp thật, cần thay `MARKETPLACE_BASE_URL`, bổ sung xác thực API, chữ ký request và mapping endpoint theo tài liệu chính thức của nền tảng.
+
+## Tài Liệu Thiết Kế
+
+Một số tài liệu thiết kế nằm trong thư mục:
+
+```text
+docs/
+```
+
+Bao gồm sơ đồ ERD, use case và tài liệu mô tả hệ thống nếu đã được xuất kèm trong dự án.
