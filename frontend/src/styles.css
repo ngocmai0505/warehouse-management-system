@@ -140,6 +140,7 @@ th{position:sticky;top:0;z-index:1;background:#f4f7fb;color:#475467}tbody tr{tra
 .live-badge{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap;border:1px solid rgba(148,163,184,.24);background:rgba(255,255,255,.86)}.live-badge svg{width:14px;height:14px}.live-badge.on{color:#166534;border-color:rgba(22,163,74,.28);background:#dcfce7}.live-badge.off{color:#991b1b;border-color:rgba(220,38,38,.24);background:#fee2e2}
 .stat-card small{display:block;margin-top:2px;color:var(--muted);font-size:12px;font-weight:600}.stat-card strong.success{color:#166534}.stat-card strong.danger{color:#991b1b}
 .order-lines{display:grid;gap:8px}.order-line{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:12px;background:#f8fafc}.order-line span{color:var(--muted);font-size:13px;font-weight:800}
+.stock-input{width:96px;min-height:36px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;background:#fff;text-align:right;font:inherit;font-weight:800;color:#101828}.stock-input:focus{outline:2px solid rgba(49,87,255,.28);border-color:#3157ff}
 
 /* Stable sidebar: avoid hover movement and scrollbar flicker */
 .sidebar{overflow:hidden!important}

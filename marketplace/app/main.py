@@ -25,8 +25,8 @@ app.add_middleware(
 )
 
 FALLBACK_LISTINGS: dict[str, dict[str, Any]] = {
-    "SK001": {"sku": "SK001", "name": "Son môi Velvet Tint", "category": "Makeup", "price": 159000, "stock": 500, "status": "Dang ban", "image_url": ""},
-    "SK002": {"sku": "SK002", "name": "Kem chống nắng Aqua", "category": "Skincare", "price": 249000, "stock": 350, "status": "Dang ban", "image_url": ""},
+    "BBIA001": {"sku": "BBIA001", "name": "BBIA Last Velvet Tint", "category": "Lip Makeup", "price": 159000, "stock": 420, "status": "Dang ban", "image_url": ""},
+    "BBIA009": {"sku": "BBIA009", "name": "BBIA Never Die Mascara", "category": "Eye Makeup", "price": 219000, "stock": 225, "status": "Dang ban", "image_url": ""},
 }
 
 listings: dict[str, dict[str, Any]] = {}

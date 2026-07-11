@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import os
 import sqlite3
 from datetime import date, datetime
@@ -18,6 +19,7 @@ DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 DB_PATH = Path(os.getenv("DATABASE_URL", DATA_DIR / "warehouse.db"))
 STATIC_DIR = Path(os.getenv("STATIC_DIR", BASE_DIR / "static"))
 MARKETPLACE_BASE_URL = os.getenv("MARKETPLACE_BASE_URL", "http://localhost:9000")
+PRODUCT_CSV_PATH = os.getenv("PRODUCT_CSV_PATH", "")
 
 app = FastAPI(title="Warehouse Management System API", version="1.2.0")
 app.add_middleware(
@@ -107,6 +109,10 @@ class ProductIn(BaseModel):
     min_stock: int = 10
     location: str = "Kho chinh"
     status: str = "Dang ban"
+
+
+class ProductStockIn(BaseModel):
+    stock_qty: int = Field(ge=0)
 
 
 class SupplierIn(BaseModel):
@@ -344,7 +350,7 @@ def ensure_channel_urls(conn: sqlite3.Connection) -> None:
 
 
 def ensure_tiktok_shop_channel(conn: sqlite3.Connection) -> None:
-    """The demo now models one marketplace only: TikTok Shop for company ABC."""
+    """The demo models one marketplace only: TikTok Shop for Bbia Official Store."""
     conn.execute("DELETE FROM channel_stock_syncs WHERE channel_id IN (SELECT id FROM sales_channels WHERE code != 'tiktok')")
     conn.execute("DELETE FROM sales_channels WHERE code != 'tiktok'")
     channel = conn.execute("SELECT id FROM sales_channels WHERE code = 'tiktok'").fetchone()
@@ -362,26 +368,26 @@ def ensure_tiktok_shop_channel(conn: sqlite3.Connection) -> None:
 
 def normalize_demo_data(conn: sqlite3.Connection) -> None:
     demo_products = [
-        ("Son môi Velvet Tint", "cây", "Kệ A1", "SK001"),
-        ("Kem chống nắng Aqua SPF50", "tuýp", "Kệ A2", "SK002"),
-        ("Mặt nạ dưỡng ẩm Hyaluronic", "hộp", "Kệ A3", "SK003"),
-        ("Nước tẩy trang Green Tea", "chai", "Kệ B1", "SK004"),
-        ("Serum Vitamin C sáng da", "chai", "Kệ B2", "SK005"),
-        ("Toner hoa hồng Calendula", "chai", "Kệ B3", "SK006"),
-        ("Sữa rửa mặt Amino Acid", "tuýp", "Kệ C1", "SK007"),
-        ("Kem dưỡng da Ceramide", "hũ", "Kệ C2", "SK008"),
-        ("Phấn nước Cushion Glow", "hộp", "Kệ C3", "SK009"),
-        ("Mascara làm dày mi Black", "cây", "Kệ D1", "SK010"),
-        ("Chì kẻ mày Brown", "cây", "Kệ D2", "SK011"),
-        ("Bảng phấn mắt Nude Palette", "bảng", "Kệ D3", "SK012"),
-        ("Son dưỡng môi Berry Balm", "thỏi", "Kệ E1", "SK013"),
-        ("Tẩy tế bào chết AHA Gel", "tuýp", "Kệ E2", "SK014"),
-        ("Dầu tẩy trang Olive Clean", "chai", "Kệ E3", "SK015"),
-        ("Xịt khoáng Mineral Mist", "chai", "Kệ F1", "SK016"),
-        ("Kem lót Primer Pore Blur", "tuýp", "Kệ F2", "SK017"),
-        ("Sữa tắm dưỡng thể Milk Honey", "chai", "Kệ F3", "SK018"),
-        ("Kem dưỡng tay Shea Butter", "tuýp", "Kệ G1", "SK019"),
-        ("Nước hoa mini Floral Day", "chai", "Kệ G2", "SK020"),
+        ("Son tint bóng căng mọng, trong trẻo BBIA Glow Tint", "cây", "Kệ A1", "BBIA001"),
+        ("Son kem nhung thuần chay, nhẹ môi BBIA Last Velvet Tint V Edition 5g", "cây", "Kệ A2", "BBIA002"),
+        ("[LIVESTREAM] Son tint bóng căng mọng, trong trẻo BBIA Glow Tint", "cây", "Kệ A3", "BBIA003"),
+        ("Má hồng kem mỏng nhẹ, bền màu BBIA Ready To Wear Downy Cheek 3.5g", "hộp", "Kệ B1", "BBIA004"),
+        ("[BÁN CHẠY] Bảng Phấn Mắt 6 ô dễ tán và bám màu tốt BBIA Ready To Wear Eye Palette 5g", "bảng", "Kệ B2", "BBIA005"),
+        ("Son tint lì lâu trôi, bền màu BBIA Air Fit Tint 4g", "cây", "Kệ B3", "BBIA006"),
+        ("Son bóng mượt mà BBIA Over Glaze 4.5g", "cây", "Kệ C1", "BBIA007"),
+        ("[LIVESTREAM] Má hồng kem mỏng nhẹ, bền màu BBIA Ready To Wear Downy Cheek 3.5g", "hộp", "Kệ C2", "BBIA008"),
+        ("Mascara dày mi, chống lem BBIA Never Die Mascara 7g", "cây", "Kệ C3", "BBIA009"),
+        ("Kem che khuyết điểm BBIA Eau Stay Concealer Eau Edition 8.5g", "tuýp", "Kệ D1", "BBIA010"),
+        ("Kẻ mắt dạng gel thuần chay, chống nước tuyệt đỉnh BBIA Last Auto Gel Eyeliner 0.3g", "cây", "Kệ D2", "BBIA011"),
+        ("[MUA 2 GIÁ 299K] Son tint bóng lâu trôi, bền màu BBIA Water Fit Tint 4g", "cây", "Kệ D3", "BBIA012"),
+        ("Mascara tơi mi, không lem trôi BBIA Never Die Mascara Slim 3ml", "cây", "Kệ E1", "BBIA013"),
+        ("Son thỏi tint bóng căng mọng, dưỡng ẩm mềm mịn BBIA Ready To Wear Water Lipstick 3g", "thỏi", "Kệ E2", "BBIA014"),
+        ("[LIVESTREAM] Son kem nhung thuần chay, nhẹ môi BBIA Last Velvet Tint V Edition 5g", "cây", "Kệ E3", "BBIA015"),
+        ("Phấn má hồng mịn lì, đa năng BBIA Last Blush 4g", "hộp", "Kệ F1", "BBIA016"),
+        ("Son tint bóng lâu trôi, dưỡng ẩm, màu trong veo BBIA L'eau Tint 4.5g", "cây", "Kệ F2", "BBIA017"),
+        ("Kẻ mắt nước đều màu, chống nước, dễ tẩy trang BBIA Last Pen Eyeliner 0.6g", "cây", "Kệ F3", "BBIA018"),
+        ("Bảng phấn mắt 10 ô dễ tán và bám màu tốt BBIA Essential Eye Palette 8.5g", "bảng", "Kệ G1", "BBIA019"),
+        ("[LIVESTREAM] Son bóng mượt mà, không bết dính BBIA Over Glaze 4.5g", "cây", "Kệ G2", "BBIA020"),
     ]
     conn.executemany("UPDATE products SET name=?, unit=?, location=? WHERE sku=?", demo_products)
     demo_users = [
@@ -390,6 +396,56 @@ def normalize_demo_data(conn: sqlite3.Connection) -> None:
         ("Nh\u00e2n vi\u00ean kho", "Nh\u00e2n vi\u00ean kho", "staff"),
     ]
     conn.executemany("UPDATE users SET full_name=?, role=? WHERE username=?", demo_users)
+
+
+def load_products_from_csv() -> list[tuple[Any, ...]]:
+    candidates = []
+    if PRODUCT_CSV_PATH:
+        candidates.append(Path(PRODUCT_CSV_PATH))
+    candidates.extend([BASE_DIR / "product-list.csv", BASE_DIR.parent / "product-list.csv"])
+    csv_path = next((path for path in candidates if path.exists()), None)
+    if not csv_path:
+        return []
+
+    def as_float(value: str, default: float = 0) -> float:
+        try:
+            return float(str(value or "").replace(",", "").strip())
+        except ValueError:
+            return default
+
+    def as_int(value: str, default: int = 0) -> int:
+        try:
+            return int(float(str(value or "").replace(",", "").strip()))
+        except ValueError:
+            return default
+
+    rows: list[tuple[Any, ...]] = []
+    with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
+        for row in csv.DictReader(file):
+            sku = (row.get("SKU") or "").strip()
+            name = (row.get("Tên sản phẩm") or "").strip()
+            if not sku or not name:
+                continue
+            rows.append(
+                (
+                    sku,
+                    name,
+                    (row.get("Danh mục") or "Makeup").strip(),
+                    (row.get("Thương hiệu") or "Bbia").strip(),
+                    (row.get("Đơn vị") or "sản phẩm").strip(),
+                    as_float(row.get("Giá nhập", "")),
+                    as_float(row.get("Giá bán", "")),
+                    (row.get("Barcode") or "").strip(),
+                    (row.get("Lô hàng") or "").strip(),
+                    (row.get("Hạn sử dụng") or "").strip(),
+                    (row.get("Link ảnh") or "").strip(),
+                    as_int(row.get("Tồn tối thiểu", ""), 10),
+                    (row.get("Vị trí") or "Kệ B1").strip(),
+                    as_int(row.get("Tồn kho", ""), 100),
+                    (row.get("Trạng thái") or "Dang ban").strip(),
+                )
+            )
+    return rows
 
 
 def init_db() -> None:
@@ -417,33 +473,42 @@ def init_db() -> None:
                     ("Beauty Logistics VN", "TP. Ho Chi Minh", "0909000111", "ops@beautylog.vn", "Nguyen An", "Dang hop tac", "Doi tac logistics noi dia"),
                 ],
             )
-        if conn.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"] == 0:
+        product_rows = load_products_from_csv()
+        if conn.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"] == 0 and product_rows:
+            conn.executemany(
+                """
+                INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, lot_number, expiry_date, image_url, min_stock, location, stock_qty, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                product_rows,
+            )
+        elif conn.execute("SELECT COUNT(*) AS count FROM products").fetchone()["count"] == 0:
             conn.executemany(
                 """
                 INSERT INTO products(sku, name, category, brand, unit, import_price, sale_price, barcode, lot_number, expiry_date, image_url, min_stock, location, stock_qty, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    ("SK001", "Son moi Velvet Tint", "Makeup", "ActsOne", "cay", 85000, 159000, "880000000001", "LOT-2026-01", "2027-12-31", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=500&q=80", 50, "Ke A1", 420, "Dang ban"),
-                    ("SK002", "Kem chong nang Aqua SPF50", "Skincare", "ActsOne", "tuyp", 120000, 249000, "880000000002", "LOT-2026-02", "2027-09-30", "https://images.unsplash.com/photo-1556228578-8c89e6adf883?auto=format&fit=crop&w=500&q=80", 40, "Ke A2", 310, "Dang ban"),
-                    ("SK003", "Mat na duong am Hyaluronic", "Skincare", "K-Beauty", "hop", 65000, 129000, "880000000003", "LOT-2026-03", "2027-08-15", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=500&q=80", 30, "Ke A3", 275, "Dang ban"),
-                    ("SK004", "Nuoc tay trang Green Tea", "Skincare", "ActsOne", "chai", 90000, 189000, "880000000004", "LOT-2026-04", "2027-07-20", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 25, "Ke B1", 360, "Dang ban"),
-                    ("SK005", "Serum Vitamin C Brightening", "Skincare", "GlowLab", "chai", 140000, 299000, "880000000005", "LOT-2026-05", "2027-10-31", "https://images.unsplash.com/photo-1620916566398-39f1143ab7be?auto=format&fit=crop&w=500&q=80", 35, "Ke B2", 185, "Dang ban"),
-                    ("SK006", "Toner hoa hong Calendula", "Skincare", "Herbal Skin", "chai", 78000, 169000, "880000000006", "LOT-2026-06", "2027-11-15", "https://images.unsplash.com/photo-1608248597279-f99d160bfcbc?auto=format&fit=crop&w=500&q=80", 30, "Ke B3", 440, "Dang ban"),
-                    ("SK007", "Sua rua mat Amino Acid", "Skincare", "PureFace", "tuyp", 72000, 149000, "880000000007", "LOT-2026-07", "2027-06-30", "https://images.unsplash.com/photo-1556229010-6c3f2c9ca5f8?auto=format&fit=crop&w=500&q=80", 45, "Ke C1", 390, "Dang ban"),
-                    ("SK008", "Kem duong da Ceramide", "Skincare", "DermaCare", "hu", 115000, 239000, "880000000008", "LOT-2026-08", "2027-12-20", "https://images.unsplash.com/photo-1601049541289-9b1b7bbbfe19?auto=format&fit=crop&w=500&q=80", 35, "Ke C2", 155, "Dang ban"),
-                    ("SK009", "Phan nuoc Cushion Glow", "Makeup", "K-Beauty", "hop", 160000, 329000, "880000000009", "LOT-2026-09", "2028-01-18", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=500&q=80", 30, "Ke C3", 225, "Dang ban"),
-                    ("SK010", "Mascara Volume Black", "Makeup", "EyePro", "cay", 69000, 139000, "880000000010", "LOT-2026-10", "2028-02-28", "https://images.unsplash.com/photo-1631214540242-3cd8c9e88a76?auto=format&fit=crop&w=500&q=80", 25, "Ke D1", 475, "Dang ban"),
-                    ("SK011", "Chi ke may Brown", "Makeup", "BrowFit", "cay", 42000, 99000, "880000000011", "LOT-2026-11", "2028-03-10", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?auto=format&fit=crop&w=500&q=80", 40, "Ke D2", 500, "Dang ban"),
-                    ("SK012", "Bang phan mat Nude Palette", "Makeup", "ColorMuse", "bang", 135000, 289000, "880000000012", "LOT-2026-12", "2028-04-05", "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=500&q=80", 25, "Ke D3", 120, "Dang ban"),
-                    ("SK013", "Son duong moi Berry Balm", "Lipcare", "ActsOne", "thoi", 36000, 79000, "880000000013", "LOT-2027-01", "2028-05-20", "https://images.unsplash.com/photo-1585652757141-8837d676fac8?auto=format&fit=crop&w=500&q=80", 50, "Ke E1", 330, "Dang ban"),
-                    ("SK014", "Tay te bao chet AHA Gel", "Skincare", "DermaCare", "tuyp", 88000, 179000, "880000000014", "LOT-2027-02", "2028-06-12", "https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=500&q=80", 30, "Ke E2", 260, "Dang ban"),
-                    ("SK015", "Dau tay trang Olive Clean", "Skincare", "Herbal Skin", "chai", 110000, 229000, "880000000015", "LOT-2027-03", "2028-07-30", "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?auto=format&fit=crop&w=500&q=80", 35, "Ke E3", 145, "Dang ban"),
-                    ("SK016", "Xit khoang Mineral Mist", "Skincare", "PureFace", "chai", 52000, 119000, "880000000016", "LOT-2027-04", "2028-08-14", "https://images.unsplash.com/photo-1629732047843-50219e9c5aef?auto=format&fit=crop&w=500&q=80", 45, "Ke F1", 410, "Dang ban"),
-                    ("SK017", "Kem lot Primer Pore Blur", "Makeup", "ColorMuse", "tuyp", 95000, 199000, "880000000017", "LOT-2027-05", "2028-09-09", "https://images.unsplash.com/photo-1556228724-4f5d027f1b86?auto=format&fit=crop&w=500&q=80", 30, "Ke F2", 205, "Dang ban"),
-                    ("SK018", "Sua tam duong the Milk Honey", "Bodycare", "GlowLab", "chai", 76000, 159000, "880000000018", "LOT-2027-06", "2028-10-25", "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=500&q=80", 40, "Ke F3", 370, "Dang ban"),
-                    ("SK019", "Kem duong tay Shea Butter", "Bodycare", "Herbal Skin", "tuyp", 39000, 89000, "880000000019", "LOT-2027-07", "2028-11-18", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 50, "Ke G1", 295, "Dang ban"),
-                    ("SK020", "Nuoc hoa mini Floral Day", "Fragrance", "Scently", "chai", 125000, 259000, "880000000020", "LOT-2027-08", "2029-01-08", "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=500&q=80", 25, "Ke G2", 135, "Dang ban"),
+                    ("BBIA001", "Son tint bóng căng mọng, trong trẻo BBIA Glow Tint", "Lip Makeup", "BBIA", "cay", 76000, 169000, "880960000001", "BBIA-2026-01", "2028-12-31", "https://down-vn.img.susercontent.com/file/vn-11134258-81ztc-mmpn5o534ft15b", 50, "Ke A1", 420, "Dang ban"),
+                    ("BBIA002", "Son kem nhung thuần chay, nhẹ môi BBIA Last Velvet Tint V Edition 5g", "Lip Makeup", "BBIA", "cay", 85000, 189000, "880960000002", "BBIA-2026-02", "2028-11-30", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=500&q=80", 45, "Ke A2", 310, "Dang ban"),
+                    ("BBIA003", "[LIVESTREAM] Son tint bóng căng mọng, trong trẻo BBIA Glow Tint", "Lip Makeup", "BBIA", "cay", 90000, 200000, "880960000003", "BBIA-2026-03", "2028-10-31", "https://images.unsplash.com/photo-1585652757141-8837d676fac8?auto=format&fit=crop&w=500&q=80", 40, "Ke A3", 275, "Dang ban"),
+                    ("BBIA004", "Má hồng kem mỏng nhẹ, bền màu BBIA Ready To Wear Downy Cheek 3.5g", "Face Makeup", "BBIA", "hop", 69000, 154000, "880960000004", "BBIA-2026-04", "2028-09-30", "https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=500&q=80", 35, "Ke B1", 360, "Dang ban"),
+                    ("BBIA005", "[BÁN CHẠY] Bảng Phấn Mắt 6 ô dễ tán và bám màu tốt BBIA Ready To Wear Eye Palette 5g", "Eye Makeup", "BBIA", "bang", 130000, 289000, "880960000005", "BBIA-2026-05", "2028-08-31", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=500&q=80", 35, "Ke B2", 185, "Dang ban"),
+                    ("BBIA006", "Son tint lì lâu trôi, bền màu BBIA Air Fit Tint 4g", "Lip Makeup", "BBIA", "cay", 74000, 165000, "880960000006", "BBIA-2026-06", "2028-07-31", "https://images.unsplash.com/photo-1625093742435-6fa192b6fb10?auto=format&fit=crop&w=500&q=80", 35, "Ke B3", 440, "Dang ban"),
+                    ("BBIA007", "Son bóng mượt mà BBIA Over Glaze 4.5g", "Lip Makeup", "BBIA", "cay", 77000, 170050, "880960000007", "BBIA-2026-07", "2028-06-30", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 40, "Ke C1", 390, "Dang ban"),
+                    ("BBIA008", "[LIVESTREAM] Má hồng kem mỏng nhẹ, bền màu BBIA Ready To Wear Downy Cheek 3.5g", "Face Makeup", "BBIA", "hop", 74000, 164000, "880960000008", "BBIA-2026-08", "2028-05-31", "https://images.unsplash.com/photo-1556228724-4f5d027f1b86?auto=format&fit=crop&w=500&q=80", 35, "Ke C2", 155, "Dang ban"),
+                    ("BBIA009", "Mascara dày mi, chống lem BBIA Never Die Mascara 7g", "Eye Makeup", "BBIA", "cay", 89000, 198000, "880960000009", "BBIA-2026-09", "2028-04-30", "https://images.unsplash.com/photo-1631214540242-3cd8c9e88a76?auto=format&fit=crop&w=500&q=80", 30, "Ke C3", 225, "Dang ban"),
+                    ("BBIA010", "Kem che khuyết điểm BBIA Eau Stay Concealer Eau Edition 8.5g", "Base Makeup", "BBIA", "tuyp", 111000, 247000, "880960000010", "BBIA-2026-10", "2028-03-31", "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=500&q=80", 35, "Ke D1", 475, "Dang ban"),
+                    ("BBIA011", "Kẻ mắt dạng gel thuần chay, chống nước tuyệt đỉnh BBIA Last Auto Gel Eyeliner 0.3g", "Eye Makeup", "BBIA", "cay", 45000, 100000, "880960000011", "BBIA-2026-11", "2028-02-28", "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=500&q=80", 35, "Ke D2", 500, "Dang ban"),
+                    ("BBIA012", "[MUA 2 GIÁ 299K] Son tint bóng lâu trôi, bền màu BBIA Water Fit Tint 4g", "Lip Makeup", "BBIA", "cay", 72000, 159000, "880960000012", "BBIA-2026-12", "2028-01-31", "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=500&q=80", 25, "Ke D3", 120, "Dang ban"),
+                    ("BBIA013", "Mascara tơi mi, không lem trôi BBIA Never Die Mascara Slim 3ml", "Eye Makeup", "BBIA", "cay", 72000, 159000, "880960000013", "BBIA-2027-01", "2028-12-20", "https://images.unsplash.com/photo-1631214540242-3cd8c9e88a76?auto=format&fit=crop&w=500&q=80", 25, "Ke E1", 330, "Dang ban"),
+                    ("BBIA014", "Son thỏi tint bóng căng mọng, dưỡng ẩm mềm mịn BBIA Ready To Wear Water Lipstick 3g", "Lip Makeup", "BBIA", "thoi", 79000, 176000, "880960000014", "BBIA-2027-02", "2028-11-20", "https://images.unsplash.com/photo-1515688594390-b649af70d282?auto=format&fit=crop&w=500&q=80", 25, "Ke E2", 260, "Dang ban"),
+                    ("BBIA015", "[LIVESTREAM] Son kem nhung thuần chay, nhẹ môi BBIA Last Velvet Tint V Edition 5g", "Lip Makeup", "BBIA", "cay", 90000, 200000, "880960000015", "BBIA-2027-03", "2028-10-20", "https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=500&q=80", 30, "Ke E3", 145, "Dang ban"),
+                    ("BBIA016", "Phấn má hồng mịn lì, đa năng BBIA Last Blush 4g", "Face Makeup", "BBIA", "hop", 67000, 149000, "880960000016", "BBIA-2027-04", "2028-09-20", "https://images.unsplash.com/photo-1612817288484-6f916006741a?auto=format&fit=crop&w=500&q=80", 30, "Ke F1", 410, "Dang ban"),
+                    ("BBIA017", "Son tint bóng lâu trôi, dưỡng ẩm, màu trong veo BBIA L'eau Tint 4.5g", "Lip Makeup", "BBIA", "cay", 87000, 194000, "880960000017", "BBIA-2027-05", "2028-08-20", "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?auto=format&fit=crop&w=500&q=80", 30, "Ke F2", 205, "Dang ban"),
+                    ("BBIA018", "Kẻ mắt nước đều màu, chống nước, dễ tẩy trang BBIA Last Pen Eyeliner 0.6g", "Eye Makeup", "BBIA", "cay", 59000, 132000, "880960000018", "BBIA-2027-06", "2028-07-20", "https://images.unsplash.com/photo-1512496015851-a90fb38ba796?auto=format&fit=crop&w=500&q=80", 25, "Ke F3", 370, "Dang ban"),
+                    ("BBIA019", "Bảng phấn mắt 10 ô dễ tán và bám màu tốt BBIA Essential Eye Palette 8.5g", "Eye Makeup", "BBIA", "bang", 202000, 448000, "880960000019", "BBIA-2027-07", "2028-06-20", "https://images.unsplash.com/photo-1522338242992-e1a54906a8da?auto=format&fit=crop&w=500&q=80", 30, "Ke G1", 295, "Dang ban"),
+                    ("BBIA020", "[LIVESTREAM] Son bóng mượt mà, không bết dính BBIA Over Glaze 4.5g", "Lip Makeup", "BBIA", "cay", 97000, 216000, "880960000020", "BBIA-2027-08", "2028-05-20", "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?auto=format&fit=crop&w=500&q=80", 25, "Ke G2", 135, "Dang ban"),
                 ],
             )
         if conn.execute("SELECT COUNT(*) AS count FROM sales_channels").fetchone()["count"] == 0:
@@ -741,6 +806,21 @@ def update_product(product_id: int, payload: ProductIn, background_tasks: Backgr
     return fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE id = ?", (product_id,))
 
 
+@app.put("/api/products/{product_id}/stock")
+def update_product_stock(product_id: int, payload: ProductStockIn, background_tasks: BackgroundTasks) -> dict[str, Any]:
+    sync_item: Optional[tuple[int, int, int]] = None
+    with get_conn() as conn:
+        product = conn.execute("SELECT id, sku, stock_qty FROM products WHERE id = ?", (product_id,)).fetchone()
+        if not product:
+            raise HTTPException(status_code=404, detail="Khong tim thay san pham")
+        conn.execute("UPDATE products SET stock_qty = ? WHERE id = ?", (payload.stock_qty, product_id))
+        log(conn, "update", "product", product_id, f"Cap nhat ton kho {product['sku']} tu {product['stock_qty']} thanh {payload.stock_qty}")
+        sync_item = (product_id, product["stock_qty"], payload.stock_qty)
+        conn.commit()
+    background_tasks.add_task(sync_stock_to_channels, "inventory_edit", None, [sync_item])
+    return fetch_one(f"SELECT {PRODUCT_FIELDS} FROM products WHERE id = ?", (product_id,))
+
+
 @app.delete("/api/products/{product_id}")
 def deactivate_product(product_id: int, background_tasks: BackgroundTasks) -> dict[str, str]:
     sync_item: Optional[tuple[int, int, int]] = None
@@ -972,6 +1052,7 @@ def create_issue(payload: IssueIn, background_tasks: BackgroundTasks) -> dict[st
             conn.commit()
         if sync_items:
             background_tasks.add_task(sync_stock_to_channels, "issue", payload.order_id, sync_items)
+        background_tasks.add_task(hub.broadcast, {"type": "order_updated", "order_id": payload.order_id, "status": "Da xuat kho"})
         return fetch_one("SELECT * FROM stock_issues WHERE id = ?", (issue_id,))
     items = payload.items
     if not items:
@@ -1082,6 +1163,7 @@ def update_order(order_id: int, payload: OrderIn, background_tasks: BackgroundTa
         conn.commit()
     if sync_items:
         background_tasks.add_task(sync_stock_to_channels, "issue", order_id, sync_items)
+    background_tasks.add_task(hub.broadcast, {"type": "order_updated", "order_id": order_id, "status": payload.status})
     return fetch_one("SELECT * FROM orders WHERE id = ?", (order_id,))
 
 
@@ -1100,6 +1182,7 @@ def delete_order(order_id: int, background_tasks: BackgroundTasks) -> dict[str, 
         conn.commit()
     if sync_items:
         background_tasks.add_task(sync_stock_to_channels, "order_cancel", order_id, sync_items)
+    background_tasks.add_task(hub.broadcast, {"type": "order_updated", "order_id": order_id, "status": "Huy don"})
     return {"message": "Da huy don hang"}
 
 
